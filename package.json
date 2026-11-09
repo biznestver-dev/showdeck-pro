@@ -22,6 +22,9 @@
     "pdfjs-dist": "4.10.38",
     "tailwindcss": "3.4.17"
   },
+  "overrides": {
+    "minimatch": "11.0.5"
+  },
   "build": {
     "appId": "com.ozproduction.showdeckpro",
     "productName": "ShowDeck Pro",
