@@ -1,0 +1,60 @@
+{
+  "name": "showdeck-pro",
+  "version": "1.0.0",
+  "description": "ShowDeck Pro desktop presentation player",
+  "author": "OZ Production",
+  "private": true,
+  "main": "main.cjs",
+  "scripts": {
+    "prepare:app": "node scripts/prepare-app.cjs",
+    "build:css": "tailwindcss --config tailwind.config.cjs --input src/styles.css --output app-build/assets/app.css --minify",
+    "build": "npm run prepare:app && npm run build:css",
+    "start": "npm run build && electron .",
+    "dist:mac": "npm run build && electron-builder --mac dmg --x64 --arm64 --publish never",
+    "dist:win": "npm run build && electron-builder --win nsis --publish never"
+  },
+  "devDependencies": {
+    "@fontsource/inter": "5.3.0",
+    "@fontsource/jetbrains-mono": "5.3.0",
+    "electron": "45.2.3",
+    "electron-builder": "26.18.0",
+    "jszip": "3.10.1",
+    "pdfjs-dist": "4.10.38",
+    "tailwindcss": "3.4.17"
+  },
+  "build": {
+    "appId": "com.ozproduction.showdeckpro",
+    "productName": "ShowDeck Pro",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "app-build/**/*",
+      "main.cjs",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.video",
+      "target": [
+        "dmg"
+      ]
+    },
+    "dmg": {
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "artifactName": "${productName}-Setup-${version}-${arch}.${ext}",
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  },
+  "allowScripts": {
+    "electron-winstaller@5.4.0": true
+  }
+}
