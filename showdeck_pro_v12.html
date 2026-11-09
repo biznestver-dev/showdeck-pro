@@ -1,0 +1,3457 @@
+<!DOCTYPE html>
+<html lang="ru" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ShowDeck Pro — Единый плеер презентаций (PDF / PPTX / MP4)</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Google Fonts: Inter & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+
+  <!-- PDF.js & JSZip CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            broadcast: {
+              bg: '#0b0d10',
+              panel: '#13161c',
+              card: '#1a1e26',
+              border: '#282e3a',
+              pgm: '#ef4444',
+              pvw: '#10b981',
+              accent: '#3b82f6'
+            }
+          }
+        }
+      }
+    };
+  </script>
+
+  <style>
+    * {
+      box-sizing: border-box;
+      user-select: none;
+    }
+
+    body {
+      background-color: #0b0d10;
+      color: #e5e7eb;
+      overflow: hidden;
+      font-family: 'Inter', sans-serif;
+    }
+
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0b0d10;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #282e3a;
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #3f4859;
+    }
+
+    .stage-16-9 {
+      aspect-ratio: 16 / 9;
+      background: #000000;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .drag-over-zone {
+      border-color: #3b82f6 !important;
+      background-color: rgba(59, 130, 246, 0.12) !important;
+    }
+
+    .cue-item.dragging {
+      opacity: 0.45;
+      border: 1px dashed #3b82f6;
+    }
+
+    .cue-item.drag-target-top {
+      border-top: 2px solid #3b82f6;
+    }
+
+    @keyframes pulse-fast {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+    .tally-live {
+      animation: pulse-fast 1.8s infinite;
+    }
+    .timer-alert-pulse {
+      will-change: transform, opacity;
+    }
+  </style>
+</head>
+<body class="h-screen w-screen flex flex-col">
+
+  <!-- TOP BROADCAST CONTROL BAR -->
+  <header class="h-14 bg-broadcast-panel border-b border-broadcast-border px-3 flex items-center justify-between gap-2 shrink-0 z-20">
+    <div class="flex items-center gap-2.5">
+      <div class="flex items-center gap-2">
+        <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-600 to-cyan-500 flex items-center justify-center shadow-lg shadow-blue-500/20">
+          <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z" />
+          </svg>
+        </div>
+        <div>
+          <div class="font-bold text-sm tracking-tight text-white flex items-center gap-1.5">
+            SHOWDECK <span class="text-[10px] font-mono bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded border border-blue-500/30">PRO</span>
+          </div>
+          <div class="text-[10px] text-gray-400 leading-none">PDF • PPTX • MP4 / MOV / WEBM / MKV</div>
+        </div>
+      </div>
+
+      <div class="h-6 w-[1px] bg-broadcast-border mx-0.5 hidden sm:block"></div>
+
+      <!-- Add Media Files -->
+      <label class="cursor-pointer bg-blue-600 hover:bg-blue-500 active:scale-[0.99] text-white text-xs font-medium px-3 py-2 rounded-lg flex items-center gap-1.5 transition shadow-sm">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+        </svg>
+        <span>Добавить файлы</span>
+        <input id="fileInput" type="file" multiple accept=".pdf,.pptx,.mp4,.webm,.mov,.m4v,.mkv,.avi,.ogv,.3gp,.ts,.mts,.m2ts,.flv,.wmv,.png,.jpg,.jpeg,.webp,.gif,.bmp,.svg,.ttf,.otf,.woff,.woff2" class="hidden" />
+      </label>
+
+      <!-- Font Manager Button -->
+      <button id="openFontModalBtn" title="Загрузить шрифты (.ttf, .otf, .woff) и посмотреть шрифты презентации" class="bg-broadcast-card hover:bg-gray-800 border border-broadcast-border text-gray-200 text-xs font-medium px-2.5 py-2 rounded-lg flex items-center gap-1.5 transition relative">
+        <span class="font-serif font-bold text-blue-400 text-sm leading-none">Aa</span>
+        <span class="hidden md:inline">Шрифты</span>
+        <span id="fontStatusBadge" class="text-[10px] font-mono bg-gray-800 text-gray-300 px-1.5 py-0.2 rounded">0</span>
+      </button>
+
+      <!-- Blackout Cue -->
+      <button id="addBlackoutBtn" title="Вставить чёрный слайд (Blackout Cue)" class="bg-broadcast-card hover:bg-gray-800 border border-broadcast-border text-gray-300 text-xs font-medium px-2.5 py-2 rounded-lg flex items-center gap-1.5 transition">
+        <span class="w-2.5 h-2.5 rounded-sm bg-black border border-gray-500 inline-block"></span>
+        <span class="hidden xl:inline">+ Blackout</span>
+      </button>
+    </div>
+
+    <!-- Center: Clicker Signal Monitor & Clocks -->
+    <div class="flex items-center gap-3">
+      <div id="clickerBadge" class="flex items-center gap-2 bg-broadcast-card border border-broadcast-border px-2.5 py-1.5 rounded-lg text-xs transition-all duration-150">
+        <span id="clickerDot" class="w-2 h-2 rounded-full bg-emerald-500"></span>
+        <span class="text-gray-400 hidden lg:inline">Кликер:</span>
+        <span id="clickerLastKey" class="font-mono text-gray-200 font-medium">ГОТОВ</span>
+      </div>
+
+      <div class="hidden sm:flex items-center gap-2 bg-broadcast-card border border-broadcast-border px-3 py-1 rounded-lg">
+        <div class="flex flex-col">
+          <span class="text-[9px] uppercase tracking-wider text-gray-500 leading-none">Таймер эфира</span>
+          <span id="showTimer" class="font-mono text-sm font-bold text-amber-400 leading-tight">00:00:00</span>
+        </div>
+        <div class="flex items-center gap-1 ml-1">
+          <button id="timerToggleBtn" title="Старт / Пауза таймера" class="p-1 hover:bg-gray-700 rounded text-gray-300">
+            <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+          </button>
+          <button id="timerResetBtn" title="Сбросить таймер" class="p-1 hover:bg-gray-700 rounded text-gray-400">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="hidden xl:flex flex-col items-end bg-broadcast-card border border-broadcast-border px-3 py-1 rounded-lg">
+        <span class="text-[9px] uppercase tracking-wider text-gray-500 leading-none">Время</span>
+        <span id="wallClock" class="font-mono text-sm font-semibold text-gray-200 leading-tight">12:00:00</span>
+      </div>
+    </div>
+
+    <!-- Right: Output Window & Fullscreen -->
+    <div class="flex items-center gap-2">
+      <!-- Stage Overlay Timer Button -->
+      <button id="toggleOverlayTimerDrawerBtn" title="Настройка таймера поверх презентации (размер, цвет, позиция)" class="px-2.5 py-2 rounded-lg text-xs font-semibold border transition flex items-center gap-1.5 bg-broadcast-card border-broadcast-border text-gray-200 hover:border-amber-500/60">
+        <span class="text-amber-400">⏱</span>
+        <span class="hidden sm:inline">Таймер на экране</span>
+        <span id="overlayTimerActiveDot" class="hidden w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+      </button>
+      <button id="masterBlackoutBtn" title="Затемнить экран вывода (Клавиша B или .)" class="px-3 py-2 rounded-lg text-xs font-bold tracking-wide border transition flex items-center gap-1.5 bg-broadcast-card border-broadcast-border text-gray-300 hover:border-red-500/50">
+        <span class="w-2 h-2 rounded-full bg-current"></span>
+        <span>BLACKOUT <span class="text-[10px] opacity-60 font-mono">[B]</span></span>
+      </button>
+
+      <button id="openOutputBtn" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-3 py-2 rounded-lg flex items-center gap-1.5 transition shadow-sm">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+        </svg>
+        <span id="outputBtnLabel">Экран вывода (Output)</span>
+      </button>
+
+      <button id="fullscreenPgmBtn" title="Развернуть эфир на весь экран (F5)" class="bg-broadcast-card hover:bg-gray-800 border border-broadcast-border text-gray-200 p-2 rounded-lg transition">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- STATUS / WARNING BANNER -->
+  <div id="toastBanner" class="hidden bg-amber-500/15 border-b border-amber-500/30 px-4 py-1.5 text-xs text-amber-200 flex items-center justify-between shrink-0">
+    <div class="flex items-center gap-2">
+      <svg class="w-4 h-4 text-amber-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+      </svg>
+      <span id="toastText">Сообщение системы</span>
+    </div>
+    <div class="flex items-center gap-3">
+      <button id="toastFontActionBtn" class="hidden underline font-semibold text-amber-300 hover:text-white">Открыть менеджер шрифтов</button>
+      <button onclick="document.getElementById('toastBanner').classList.add('hidden')" class="text-amber-300 hover:text-white">✕</button>
+    </div>
+  </div>
+
+  <!-- MAIN WORKSPACE -->
+  <main class="flex-1 flex flex-col lg:flex-row overflow-hidden">
+
+    <!-- LEFT SIDEBAR: UNIFIED CUE LIST / PLAYLIST -->
+    <aside id="dropZone" class="w-full lg:w-80 xl:w-96 bg-broadcast-panel border-b lg:border-b-0 lg:border-r border-broadcast-border flex flex-col h-1/2 lg:h-full shrink-0 transition-colors">
+      <div class="px-3 py-2.5 border-b border-broadcast-border flex items-center justify-between bg-broadcast-card/40">
+        <div class="flex items-center gap-2">
+          <span class="text-xs font-bold uppercase tracking-wider text-gray-300">Плейлист (Cue List)</span>
+          <span id="cueCountBadge" class="text-[11px] font-mono bg-gray-800 text-gray-300 px-2 py-0.5 rounded-full">0</span>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <button id="loadDemoBtn" class="text-[11px] text-blue-400 hover:text-blue-300 px-2 py-1 rounded hover:bg-blue-500/10 transition">
+            Демо-набор
+          </button>
+          <button id="clearListBtn" class="text-[11px] text-gray-400 hover:text-red-400 px-2 py-1 rounded hover:bg-red-500/10 transition">
+            Очистить
+          </button>
+        </div>
+      </div>
+
+      <!-- Loading Progress Bar -->
+      <div id="importProgressWrap" class="hidden px-3 py-2 bg-blue-950/40 border-b border-blue-500/30">
+        <div class="flex justify-between text-[11px] text-blue-300 mb-1">
+          <span id="importStatusText">Обработка файла...</span>
+          <span id="importPercentText" class="font-mono">0%</span>
+        </div>
+        <div class="w-full h-1.5 bg-gray-800 rounded-full overflow-hidden">
+          <div id="importProgressBar" class="h-full bg-blue-500 transition-all duration-150" style="width: 0%"></div>
+        </div>
+      </div>
+
+      <!-- Cue Items Scroll Container -->
+      <div id="cueListContainer" class="flex-1 overflow-y-auto p-2 space-y-1.5"></div>
+
+      <!-- Drop Hint Footer -->
+      <div class="p-2.5 border-t border-broadcast-border bg-broadcast-bg/60 text-center">
+        <p class="text-[11px] text-gray-400">
+          Перетащите <span class="text-gray-200 font-medium">PDF</span>, <span class="text-gray-200 font-medium">PPTX</span>, <span class="text-gray-200 font-medium">MP4/MOV/WEBM/MKV</span> или шрифты <span class="text-blue-400 font-medium">.TTF/.OTF</span>
+        </p>
+      </div>
+    </aside>
+
+    <!-- CENTER / RIGHT: PGM & PVW MONITORS + CLICKER & VIDEO DECK -->
+    <section class="flex-1 flex flex-col bg-broadcast-bg overflow-y-auto">
+      
+      <div class="flex-1 p-3 md:p-4 grid grid-cols-1 md:grid-cols-2 gap-4 items-center content-center min-h-[260px]">
+        
+        <!-- PGM (LIVE OUTPUT) MONITOR -->
+        <div class="flex flex-col bg-broadcast-panel border-2 border-red-500/70 rounded-xl overflow-hidden shadow-2xl shadow-red-950/20">
+          <div class="px-3 py-1.5 bg-red-950/40 border-b border-red-500/30 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-red-500 tally-live"></span>
+              <span class="text-xs font-bold tracking-wider text-red-400">PGM • ЭФИР (LIVE)</span>
+            </div>
+            <span id="pgmCueIndex" class="font-mono text-xs text-red-300">CUE 0 / 0</span>
+          </div>
+          
+          <div id="pgmStageWrapper" class="stage-16-9 w-full relative group">
+            <div id="pgmStageContent" class="w-full h-full flex items-center justify-center"></div>
+
+            <!-- Draggable Stage Overlay Timer (PGM Preview) -->
+            <div id="pgmOverlayTimerBox" title="Перетащите мышкой в любое место экрана" class="hidden absolute z-10 cursor-move select-none font-mono font-bold leading-none transition-colors duration-700 hover:ring-2 hover:ring-amber-400/70" style="left: 50%; top: 12%; transform: translate(-50%, -50%);">
+              <span id="pgmOverlayTimerText">05:00</span>
+            </div>
+
+            <div id="pgmBlackoutOverlay" class="hidden absolute inset-0 bg-black/95 flex flex-col items-center justify-center z-20 border border-red-500/30">
+              <span class="px-3 py-1 rounded bg-red-600/20 border border-red-500 text-red-400 font-mono text-xs font-bold tracking-widest">
+                OUTPUT BLACKOUT ACTIVE
+              </span>
+              <span class="text-[11px] text-gray-500 mt-1.5">Нажмите [B] или [.] для возврата картинки</span>
+            </div>
+          </div>
+
+          <div class="px-3 py-2 bg-broadcast-card border-t border-broadcast-border flex items-center justify-between gap-2">
+            <div class="truncate">
+              <div id="pgmTitle" class="text-xs font-semibold text-white truncate">Нет активного слайда</div>
+              <div id="pgmSubtitle" class="text-[10px] text-gray-400 truncate">Выберите элемент в плейлисте</div>
+            </div>
+            <span id="pgmTypeBadge" class="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-gray-800 text-gray-300 shrink-0">—</span>
+          </div>
+        </div>
+
+        <!-- PVW (NEXT CUE) MONITOR -->
+        <div class="flex flex-col bg-broadcast-panel border border-emerald-500/40 rounded-xl overflow-hidden shadow-xl">
+          <div class="px-3 py-1.5 bg-emerald-950/30 border-b border-emerald-500/20 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+              <span class="text-xs font-bold tracking-wider text-emerald-400">PVW • СЛЕДУЮЩИЙ (NEXT)</span>
+            </div>
+            <span id="pvwCueIndex" class="font-mono text-xs text-emerald-300">NEXT —</span>
+          </div>
+          
+          <div class="stage-16-9 w-full relative">
+            <div id="pvwStageContent" class="w-full h-full flex items-center justify-center opacity-90"></div>
+          </div>
+
+          <div class="px-3 py-2 bg-broadcast-card border-t border-broadcast-border flex items-center justify-between gap-2">
+            <div class="truncate">
+              <div id="pvwTitle" class="text-xs font-semibold text-gray-200 truncate">Конец плейлиста</div>
+              <div id="pvwSubtitle" class="text-[10px] text-gray-400 truncate">Следующий слайд отсутствует</div>
+            </div>
+            <span id="pvwTypeBadge" class="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-gray-800 text-gray-400 shrink-0">—</span>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- STAGE OVERLAY TIMER STUDIO BAR (Collapsible) -->
+      <div id="overlayTimerPanel" class="hidden bg-broadcast-panel border-t border-amber-500/40 px-3 md:px-4 py-2.5 shrink-0">
+        <div class="flex flex-wrap items-center justify-between gap-3 text-xs">
+          
+          <!-- Enable Switch + Mode + Countdown Setup -->
+          <div class="flex flex-wrap items-center gap-2.5">
+            <label class="flex items-center gap-2 cursor-pointer bg-amber-500/15 border border-amber-500/40 px-2.5 py-1.5 rounded-lg text-amber-200 font-semibold">
+              <input id="ovTimerVisibleCheck" type="checkbox" class="rounded bg-gray-800 border-gray-600 text-amber-500 focus:ring-0" />
+              <span>Показать поверх слайдов</span>
+            </label>
+
+            <select id="ovTimerModeSelect" class="bg-broadcast-card border border-broadcast-border text-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-amber-500">
+              <option value="countdown">Обратный отсчёт</option>
+              <option value="countup">Секундомер (вперёд)</option>
+              <option value="clock">Текущее время (часы)</option>
+            </select>
+
+            <div id="ovCountdownInputs" class="flex items-center gap-1 bg-broadcast-card border border-broadcast-border px-2 py-1 rounded-lg">
+              <input id="ovMinInput" type="number" min="0" max="999" value="5" class="w-11 bg-broadcast-bg border border-gray-700 rounded px-1.5 py-0.5 text-center font-mono text-white" title="Минуты" />
+              <span class="text-gray-400 font-mono">:</span>
+              <input id="ovSecInput" type="number" min="0" max="59" value="0" class="w-11 bg-broadcast-bg border border-gray-700 rounded px-1.5 py-0.5 text-center font-mono text-white" title="Секунды" />
+              <button id="ovApplyTimeBtn" class="ml-1 bg-gray-700 hover:bg-gray-600 text-gray-200 px-2 py-0.5 rounded text-[11px]" title="Установить время">OK</button>
+            </div>
+
+            <!-- Play / Pause / Reset -->
+            <div class="flex items-center gap-1">
+              <button id="ovPlayPauseBtn" class="bg-amber-600 hover:bg-amber-500 text-white font-semibold px-2.5 py-1.5 rounded-lg transition">
+                ▶ Старт
+              </button>
+              <button id="ovResetBtn" class="bg-broadcast-card hover:bg-gray-800 border border-broadcast-border text-gray-300 px-2 py-1.5 rounded-lg transition" title="Сброс">
+                ↺
+              </button>
+            </div>
+          </div>
+
+          <!-- Appearance: Size, Text Color, Background Color, Opacity, Position -->
+          <div class="flex flex-wrap items-center gap-3 bg-broadcast-card border border-broadcast-border px-3 py-1.5 rounded-lg">
+            <div class="flex items-center gap-1.5" title="Размер шрифта таймера (% от высоты экрана)">
+              <span class="text-gray-400">Размер:</span>
+              <input id="ovSizeSlider" type="range" min="3" max="24" step="0.5" value="8" class="w-20 accent-amber-500 h-1.5 bg-gray-700 rounded-lg cursor-pointer" />
+              <span id="ovSizeVal" class="font-mono text-[11px] text-gray-300 w-8">8%</span>
+            </div>
+
+            <div class="flex items-center gap-1.5" title="Цвет цифр">
+              <span class="text-gray-400">Текст:</span>
+              <input id="ovTextColorInput" type="color" value="#ffffff" class="w-6 h-6 rounded cursor-pointer bg-transparent border-0 p-0" />
+            </div>
+
+            <div class="flex items-center gap-1.5" title="Фон таймера">
+              <button id="ovTransparentBgBtn" type="button" class="px-2 py-1 rounded border text-[11px] font-medium transition bg-amber-500/20 border-amber-500/60 text-amber-200" title="Переключить: полностью прозрачный фон / цветная подложка">
+                Фон: Прозрачный
+              </button>
+              <input id="ovBgColorInput" type="color" value="#000000" class="w-6 h-6 rounded cursor-pointer bg-transparent border-0 p-0" title="Цвет подложки" />
+              <input id="ovBgAlphaSlider" type="range" min="0" max="1" step="0.05" value="0" class="w-14 accent-amber-500 h-1.5 bg-gray-700 rounded-lg cursor-pointer" title="Плотность подложки" />
+            </div>
+
+            <div class="flex items-center gap-1.5" title="Формат отображения цифр таймера">
+              <span class="text-gray-400">Формат:</span>
+              <select id="ovFormatSelect" class="bg-broadcast-bg border border-gray-700 text-gray-200 rounded px-2 py-0.5 text-[11px] focus:outline-none focus:border-amber-500">
+                <option value="mm_ss" selected>ММ:СС (мин + сек)</option>
+                <option value="hh_mm_ss">ЧЧ:ММ:СС</option>
+                <option value="ss_only">Только секунды (число)</option>
+                <option value="mm_ss_ms">ММ:СС.д (с десятыми)</option>
+              </select>
+            </div>
+
+            <button id="ovCenterPosBtn" class="text-[11px] text-blue-400 hover:text-blue-300 underline" title="Вернуть таймер в центр">
+              По центру
+            </button>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- BOTTOM CONTROL DECK -->
+      <div class="bg-broadcast-panel border-t border-broadcast-border p-3 md:p-4 shrink-0 space-y-3">
+        
+        <!-- Video Transport Bar -->
+        <div id="videoControlBar" class="hidden bg-broadcast-card border border-blue-500/30 rounded-xl p-2.5 flex flex-wrap items-center justify-between gap-3">
+          <div class="flex items-center gap-2">
+            <button id="vidPlayPauseBtn" class="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition">
+              <span id="vidPlayIcon">⏸ Пауза</span>
+            </button>
+            <button id="vidRestartBtn" title="В начало ролика" class="bg-gray-800 hover:bg-gray-700 text-gray-200 px-2.5 py-1.5 rounded-lg text-xs transition">
+              ⏮ Сначала
+            </button>
+          </div>
+
+          <div class="flex-1 min-w-[160px] flex items-center gap-2.5">
+            <span id="vidCurrentTime" class="font-mono text-xs text-gray-300 w-11 text-right">00:00</span>
+            <input id="vidSeekSlider" type="range" min="0" max="100" value="0" step="0.1" class="flex-1 accent-blue-500 h-1.5 bg-gray-700 rounded-lg cursor-pointer" />
+            <span id="vidDurationTime" class="font-mono text-xs text-gray-400 w-11">00:00</span>
+          </div>
+
+          <div class="flex items-center gap-3 text-xs">
+            <label class="flex items-center gap-1.5 cursor-pointer text-gray-300">
+              <input id="vidLoopCheck" type="checkbox" class="rounded bg-gray-800 border-gray-600 text-blue-500 focus:ring-0" />
+              <span>Loop (Повтор)</span>
+            </label>
+            <div class="flex items-center gap-1.5">
+              <span class="text-gray-400">🔊</span>
+              <input id="vidVolumeSlider" type="range" min="0" max="1" step="0.05" value="1" class="w-16 accent-blue-500 h-1.5 bg-gray-700 rounded-lg cursor-pointer" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Main Clicker & Navigation Deck -->
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          
+          <div class="flex items-center gap-2">
+            <button id="prevCueBtn" class="bg-broadcast-card hover:bg-gray-800 active:scale-[0.98] border border-broadcast-border text-white px-4 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2 transition">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5"/></svg>
+              <span>Назад</span>
+              <span class="text-[10px] font-mono text-gray-400 bg-gray-800 px-1.5 py-0.5 rounded">← / PgUp</span>
+            </button>
+
+            <button id="nextCueBtn" class="bg-emerald-600 hover:bg-emerald-500 active:scale-[0.98] text-white px-6 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition shadow-lg shadow-emerald-950/40">
+              <span>СЛЕДУЮЩИЙ СЛАЙД</span>
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
+              <span class="text-[10px] font-mono text-emerald-100 bg-emerald-700/80 px-1.5 py-0.5 rounded">→ / Space</span>
+            </button>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-3 text-xs bg-broadcast-card border border-broadcast-border px-3 py-2 rounded-xl">
+            <div class="flex items-center gap-2">
+              <span class="text-gray-400 font-medium">Поведение видео по кликеру:</span>
+              <select id="videoClickerMode" class="bg-broadcast-bg border border-broadcast-border text-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-blue-500">
+                <option value="autoplay_next">Автостарт → Клик = След. слайд</option>
+                <option value="autoplay_pause_next">Автостарт → Клик = Пауза/Старт</option>
+                <option value="manual_start">Ждать клик для старта видео</option>
+              </select>
+            </div>
+
+            <div class="h-4 w-[1px] bg-broadcast-border hidden sm:block"></div>
+
+            <div class="flex items-center gap-2">
+              <span class="text-gray-400 font-medium">Звук видео:</span>
+              <select id="audioOutputMode" class="bg-broadcast-bg border border-broadcast-border text-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-blue-500">
+                <option value="output_only">Только в окне Output (если открыто)</option>
+                <option value="operator_only">В окне оператора</option>
+              </select>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+    </section>
+  </main>
+
+  <!-- FONT MANAGER MODAL -->
+  <div id="fontModal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-broadcast-panel border border-broadcast-border rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
+      <!-- Modal Header -->
+      <div class="px-5 py-4 border-b border-broadcast-border flex items-center justify-between bg-broadcast-card/60">
+        <div>
+          <h2 class="text-base font-bold text-white flex items-center gap-2">
+            <span class="w-7 h-7 rounded-lg bg-blue-600/20 border border-blue-500/40 text-blue-400 font-serif flex items-center justify-center">Aa</span>
+            Менеджер шрифтов PPTX (Автораспознавание)
+          </h2>
+          <p class="text-xs text-gray-400 mt-0.5">
+            Программа автоматически определяет имена шрифтов из файлов .ttf / .otf / .woff и из PPTX-презентаций
+          </p>
+        </div>
+        <button id="closeFontModalBtn" class="text-gray-400 hover:text-white p-1.5 rounded-lg hover:bg-gray-800">✕</button>
+      </div>
+
+      <!-- Modal Body -->
+      <div class="p-5 overflow-y-auto space-y-5 flex-1">
+        
+        <!-- Upload Dropzone -->
+        <label id="fontDropArea" class="cursor-pointer border-2 border-dashed border-broadcast-border hover:border-blue-500 bg-broadcast-card/40 hover:bg-blue-500/5 rounded-xl p-5 flex flex-col items-center justify-center text-center transition">
+          <svg class="w-8 h-8 text-blue-400 mb-2" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+          </svg>
+          <div class="text-sm font-semibold text-white">Загрузить файлы шрифтов (.ttf, .otf, .woff, .woff2)</div>
+          <div class="text-xs text-gray-400 mt-1">Можно выбрать сразу целую папку или несколько начертаний (Regular, Bold, Italic)</div>
+          <input id="fontFileInput" type="file" multiple accept=".ttf,.otf,.woff,.woff2" class="hidden" />
+        </label>
+
+        <!-- Detected Fonts in PPTX Decks -->
+        <div>
+          <div class="flex items-center justify-between mb-2 gap-2 flex-wrap">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-gray-300">Шрифты, обнаруженные в загруженных PPTX</h3>
+            <div class="flex items-center gap-2">
+              <button id="autoFetchGoogleFontsBtn" class="hidden bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold px-3 py-1 rounded-lg transition flex items-center gap-1">
+                <span>⬇ Автозагрузить найденные в Google Fonts</span>
+              </button>
+              <button id="rerenderPptxBtn" class="hidden bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-3 py-1 rounded-lg transition">
+                ↻ Перерисовать слайды
+              </button>
+            </div>
+          </div>
+          <div id="detectedFontsList" class="space-y-1.5 text-xs">
+            <div class="text-gray-500 italic bg-broadcast-card/40 border border-broadcast-border rounded-lg p-3">
+              Загрузите PPTX-файл — здесь появится список всех шрифтов, их статус, автопоиск в Google Fonts и ссылки на скачивание.
+            </div>
+          </div>
+        </div>
+
+        <!-- Loaded Custom Fonts Library -->
+        <div>
+          <h3 class="text-xs font-bold uppercase tracking-wider text-gray-300 mb-2">Загруженные пользовательские шрифты в памяти</h3>
+          <div id="loadedFontsList" class="space-y-1.5 text-xs">
+            <div class="text-gray-500 italic bg-broadcast-card/40 border border-broadcast-border rounded-lg p-3">
+              Пользовательские шрифты ещё не загружены.
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="px-5 py-3 border-t border-broadcast-border bg-broadcast-card/40 flex items-center justify-between text-xs text-gray-400">
+        <span>Встроенные шрифты внутри PPTX (Embedded Fonts) также извлекаются автоматически.</span>
+        <button id="closeFontModalBtn2" class="bg-gray-800 hover:bg-gray-700 text-white px-4 py-1.5 rounded-lg font-medium">Готово</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SINGLE-SCREEN FULLSCREEN OVERLAY -->
+  <div id="localFullscreenOverlay" class="hidden fixed inset-0 bg-black z-50 flex items-center justify-center">
+    <div id="localFullscreenStage" class="w-full h-full flex items-center justify-center"></div>
+    <div id="fsOverlayTimerBox" class="hidden fixed z-50 pointer-events-none select-none font-mono font-bold leading-none transition-colors duration-700" style="left: 50%; top: 12%; transform: translate(-50%, -50%);">
+      <span id="fsOverlayTimerText">05:00</span>
+    </div>
+    <div id="localFullscreenBlackout" class="hidden fixed inset-0 bg-black z-50"></div>
+    
+    <div class="fixed top-4 right-4 opacity-0 hover:opacity-100 transition-opacity bg-black/70 border border-white/15 text-gray-300 text-xs px-3 py-1.5 rounded-lg flex items-center gap-3 z-50">
+      <span>Режим показа (кликер активен)</span>
+      <button id="exitLocalFullscreenBtn" class="text-red-400 hover:text-red-300 font-semibold">Выйти [ESC]</button>
+    </div>
+  </div>
+
+  <script>
+    /**
+     * SHOWDECK PRO — UNIFIED PRESENTATION & VIDEO CUE ENGINE
+     * Features:
+     * 1. TrueType / OpenType Binary Name Table Parser (auto-detects exact Font Family, Subfamily, Weight, Style)
+     * 2. Automatic PPTX Embedded Font Extractor + Missing Font Detector + Live Re-Renderer
+     * 3. Coordinate-Aware OpenXML PPTX Renderer (EMU positioning, backgrounds, shapes, images, rich text runs)
+     * 4. PDF.js, MP4/WebM/MOV, USB Clickers, Direct Dual-Screen Output (file:// & HTTP)
+     */
+
+    if (window.pdfjsLib) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    }
+
+    // ==========================================
+    // 1. APPLICATION STATE
+    // ==========================================
+    const state = {
+      cues: [],
+      currentIndex: -1,
+      isBlackout: false,
+      isLocalFullscreen: false,
+      outputWindow: null,
+      videoElementPgm: null,
+      videoElementFs: null,
+      draggedCueId: null,
+      timerSeconds: 0,
+      timerRunning: false,
+      timerInterval: null,
+
+      // Font Management State
+      loadedFonts: [],          // { id, family, subfamily, weight, style, fileName, source: 'user'|'pptx_embedded' }
+      loadedFamilySet: new Set(), // normalized lowercase family names
+      pptxDecks: [],            // { deckId, file, requiredFonts: Set<string> }
+      pptxNeedsRerender: false,
+
+      // Stage Overlay Timer State
+      overlayTimer: {
+        visible: false,
+        mode: 'countdown',      // 'countdown' | 'countup' | 'clock'
+        format: 'mm_ss',        // 'mm_ss' | 'hh_mm_ss' | 'ss_only' | 'mm_ss_ms'
+        running: false,
+        initialSeconds: 300,
+        currentSeconds: 300,
+        intervalId: null,
+        lastTickTs: 0,
+        xPct: 50,               // 0..100% position on stage
+        yPct: 14,               // 0..100% position on stage
+        sizePct: 8,             // font size as % of stage height
+        textColor: '#ffffff',
+        bgColor: '#000000',
+        bgAlpha: 0
+      }
+    };
+
+    // ==========================================
+    // 2. DOM REFERENCES
+    // ==========================================
+    const dom = {
+      fileInput: document.getElementById('fileInput'),
+      dropZone: document.getElementById('dropZone'),
+      cueListContainer: document.getElementById('cueListContainer'),
+      cueCountBadge: document.getElementById('cueCountBadge'),
+      importProgressWrap: document.getElementById('importProgressWrap'),
+      importStatusText: document.getElementById('importStatusText'),
+      importPercentText: document.getElementById('importPercentText'),
+      importProgressBar: document.getElementById('importProgressBar'),
+      toastBanner: document.getElementById('toastBanner'),
+      toastText: document.getElementById('toastText'),
+      toastFontActionBtn: document.getElementById('toastFontActionBtn'),
+
+      // Font Modal
+      fontModal: document.getElementById('fontModal'),
+      openFontModalBtn: document.getElementById('openFontModalBtn'),
+      closeFontModalBtn: document.getElementById('closeFontModalBtn'),
+      closeFontModalBtn2: document.getElementById('closeFontModalBtn2'),
+      fontFileInput: document.getElementById('fontFileInput'),
+      fontDropArea: document.getElementById('fontDropArea'),
+      fontStatusBadge: document.getElementById('fontStatusBadge'),
+      detectedFontsList: document.getElementById('detectedFontsList'),
+      loadedFontsList: document.getElementById('loadedFontsList'),
+      rerenderPptxBtn: document.getElementById('rerenderPptxBtn'),
+
+      // Monitors
+      pgmStageContent: document.getElementById('pgmStageContent'),
+      pgmBlackoutOverlay: document.getElementById('pgmBlackoutOverlay'),
+      pgmCueIndex: document.getElementById('pgmCueIndex'),
+      pgmTitle: document.getElementById('pgmTitle'),
+      pgmSubtitle: document.getElementById('pgmSubtitle'),
+      pgmTypeBadge: document.getElementById('pgmTypeBadge'),
+
+      pvwStageContent: document.getElementById('pvwStageContent'),
+      pvwCueIndex: document.getElementById('pvwCueIndex'),
+      pvwTitle: document.getElementById('pvwTitle'),
+      pvwSubtitle: document.getElementById('pvwSubtitle'),
+      pvwTypeBadge: document.getElementById('pvwTypeBadge'),
+
+      // Video Controls
+      videoControlBar: document.getElementById('videoControlBar'),
+      vidPlayPauseBtn: document.getElementById('vidPlayPauseBtn'),
+      vidPlayIcon: document.getElementById('vidPlayIcon'),
+      vidRestartBtn: document.getElementById('vidRestartBtn'),
+      vidCurrentTime: document.getElementById('vidCurrentTime'),
+      vidDurationTime: document.getElementById('vidDurationTime'),
+      vidSeekSlider: document.getElementById('vidSeekSlider'),
+      vidLoopCheck: document.getElementById('vidLoopCheck'),
+      vidVolumeSlider: document.getElementById('vidVolumeSlider'),
+
+      // Clicker & Top Controls
+      clickerBadge: document.getElementById('clickerBadge'),
+      clickerDot: document.getElementById('clickerDot'),
+      clickerLastKey: document.getElementById('clickerLastKey'),
+      masterBlackoutBtn: document.getElementById('masterBlackoutBtn'),
+      openOutputBtn: document.getElementById('openOutputBtn'),
+      outputBtnLabel: document.getElementById('outputBtnLabel'),
+      fullscreenPgmBtn: document.getElementById('fullscreenPgmBtn'),
+      prevCueBtn: document.getElementById('prevCueBtn'),
+      nextCueBtn: document.getElementById('nextCueBtn'),
+      videoClickerMode: document.getElementById('videoClickerMode'),
+      audioOutputMode: document.getElementById('audioOutputMode'),
+
+      // Fullscreen
+      localFullscreenOverlay: document.getElementById('localFullscreenOverlay'),
+      localFullscreenStage: document.getElementById('localFullscreenStage'),
+      localFullscreenBlackout: document.getElementById('localFullscreenBlackout'),
+      exitLocalFullscreenBtn: document.getElementById('exitLocalFullscreenBtn'),
+
+      // Clocks
+      showTimer: document.getElementById('showTimer'),
+      wallClock: document.getElementById('wallClock'),
+      timerToggleBtn: document.getElementById('timerToggleBtn'),
+      timerResetBtn: document.getElementById('timerResetBtn'),
+
+      // Stage Overlay Timer
+      toggleOverlayTimerDrawerBtn: document.getElementById('toggleOverlayTimerDrawerBtn'),
+      overlayTimerActiveDot: document.getElementById('overlayTimerActiveDot'),
+      overlayTimerPanel: document.getElementById('overlayTimerPanel'),
+      pgmStageWrapper: document.getElementById('pgmStageWrapper'),
+      pgmOverlayTimerBox: document.getElementById('pgmOverlayTimerBox'),
+      pgmOverlayTimerText: document.getElementById('pgmOverlayTimerText'),
+      fsOverlayTimerBox: document.getElementById('fsOverlayTimerBox'),
+      fsOverlayTimerText: document.getElementById('fsOverlayTimerText'),
+      ovTimerVisibleCheck: document.getElementById('ovTimerVisibleCheck'),
+      ovTimerModeSelect: document.getElementById('ovTimerModeSelect'),
+      ovCountdownInputs: document.getElementById('ovCountdownInputs'),
+      ovMinInput: document.getElementById('ovMinInput'),
+      ovSecInput: document.getElementById('ovSecInput'),
+      ovApplyTimeBtn: document.getElementById('ovApplyTimeBtn'),
+      ovPlayPauseBtn: document.getElementById('ovPlayPauseBtn'),
+      ovResetBtn: document.getElementById('ovResetBtn'),
+      ovSizeSlider: document.getElementById('ovSizeSlider'),
+      ovSizeVal: document.getElementById('ovSizeVal'),
+      ovTextColorInput: document.getElementById('ovTextColorInput'),
+      ovBgColorInput: document.getElementById('ovBgColorInput'),
+      ovBgAlphaSlider: document.getElementById('ovBgAlphaSlider'),
+      ovFormatSelect: document.getElementById('ovFormatSelect'),
+      ovCenterPosBtn: document.getElementById('ovCenterPosBtn')
+    };
+
+    // ==========================================
+    // 3. UTILITY FUNCTIONS
+    // ==========================================
+    function generateId() {
+      return 'cue_' + Math.random().toString(36).substring(2, 9);
+    }
+
+    function showBanner(msg, showFontBtn = false) {
+      dom.toastText.textContent = msg;
+      dom.toastBanner.classList.remove('hidden');
+      if (showFontBtn) {
+        dom.toastFontActionBtn.classList.remove('hidden');
+      } else {
+        dom.toastFontActionBtn.classList.add('hidden');
+      }
+    }
+
+    function formatTime(sec) {
+      if (!isFinite(sec) || sec < 0) return '00:00';
+      const m = Math.floor(sec / 60);
+      const s = Math.floor(sec % 60);
+      return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    }
+
+    function formatHMS(sec) {
+      const h = Math.floor(sec / 3600);
+      const m = Math.floor((sec % 3600) / 60);
+      const s = sec % 60;
+      return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    }
+
+    function setProgress(visible, text = '', percent = 0) {
+      if (!visible) {
+        dom.importProgressWrap.classList.add('hidden');
+        return;
+      }
+      dom.importProgressWrap.classList.remove('hidden');
+      dom.importStatusText.textContent = text;
+      dom.importPercentText.textContent = `${Math.round(percent)}%`;
+      dom.importProgressBar.style.width = `${percent}%`;
+    }
+
+    // ==========================================
+    // 4. AUTOMATIC FONT PARSER & REGISTRATION ENGINE
+    // ==========================================
+    /**
+     * Parses binary OpenType / TrueType (`name` and `OS/2` tables) directly from ArrayBuffer
+     * to extract exact Font Family name (e.g. "Montserrat", "ALS Sector", "RF Dewi")
+     * even if the file is named "font_01_bold.ttf".
+     */
+    function inspectBinaryFontMetadata(arrayBuffer, fallbackFileName) {
+      const fallbackName = fallbackFileName
+        .replace(/\.[^/.]+$/, '')
+        .replace(/[-_](regular|bold|italic|light|medium|semibold|extrabold|black|thin|\d+)$/i, '')
+        .replace(/[-_]+/g, ' ')
+        .trim();
+
+      const result = {
+        family: fallbackName || 'CustomFont',
+        subfamily: 'Regular',
+        weight: '400',
+        style: 'normal'
+      };
+
+      try {
+        const view = new DataView(arrayBuffer);
+        if (view.byteLength < 12) return result;
+
+        const sfntVersion = view.getUint32(0, false);
+        // Check for TrueType (0x00010000) or OpenType CFF ('OTTO' = 0x4F54544F)
+        if (sfntVersion !== 0x00010000 && sfntVersion !== 0x4F54544F) {
+          // For WOFF/WOFF2 infer weight/style from filename
+          inferWeightStyleFromStr(fallbackFileName, result);
+          return result;
+        }
+
+        const numTables = view.getUint16(4, false);
+        let nameTableOffset = 0;
+        let os2TableOffset = 0;
+
+        for (let i = 0; i < numTables; i++) {
+          const entryOffset = 12 + i * 16;
+          if (entryOffset + 16 > view.byteLength) break;
+          const tag = String.fromCharCode(
+            view.getUint8(entryOffset),
+            view.getUint8(entryOffset + 1),
+            view.getUint8(entryOffset + 2),
+            view.getUint8(entryOffset + 3)
+          );
+          const offset = view.getUint32(entryOffset + 8, false);
+          if (tag === 'name') nameTableOffset = offset;
+          if (tag === 'OS/2') os2TableOffset = offset;
+        }
+
+        // Parse OS/2 table for exact numeric weight (usWeightClass) & italic bit
+        if (os2TableOffset && os2TableOffset + 64 <= view.byteLength) {
+          const weightClass = view.getUint16(os2TableOffset + 4, false);
+          if (weightClass >= 100 && weightClass <= 1000) {
+            result.weight = String(weightClass);
+          }
+          const fsSelection = view.getUint16(os2TableOffset + 62, false);
+          if (fsSelection & 1) result.style = 'italic';
+        }
+
+        // Parse 'name' table for exact Font Family Name (NameID 1 and Preferred Family NameID 16)
+        if (nameTableOffset && nameTableOffset + 6 <= view.byteLength) {
+          const count = view.getUint16(nameTableOffset + 2, false);
+          const stringOffset = nameTableOffset + view.getUint16(nameTableOffset + 4, false);
+
+          const names = {}; // nameID -> string
+          for (let i = 0; i < count; i++) {
+            const recOffset = nameTableOffset + 6 + i * 12;
+            if (recOffset + 12 > view.byteLength) break;
+
+            const platformID = view.getUint16(recOffset, false);
+            const nameID = view.getUint16(recOffset + 6, false);
+            const length = view.getUint16(recOffset + 8, false);
+            const offset = view.getUint16(recOffset + 10, false);
+
+            if (![1, 2, 16, 17].includes(nameID)) continue;
+            if (stringOffset + offset + length > view.byteLength) continue;
+
+            let decoded = '';
+            if (platformID === 3 || platformID === 0) {
+              // UTF-16BE
+              for (let b = 0; b + 1 < length; b += 2) {
+                const charCode = view.getUint16(stringOffset + offset + b, false);
+                if (charCode > 0) decoded += String.fromCharCode(charCode);
+              }
+            } else if (platformID === 1) {
+              // Mac Roman / ASCII
+              for (let b = 0; b < length; b++) {
+                const charCode = view.getUint8(stringOffset + offset + b);
+                if (charCode > 0) decoded += String.fromCharCode(charCode);
+              }
+            }
+
+            if (decoded.trim()) {
+              // Prefer Windows Unicode (platformID 3) over Mac
+              if (!names[nameID] || platformID === 3) {
+                names[nameID] = decoded.trim();
+              }
+            }
+          }
+
+          // NameID 16 is Typographic Family (e.g. "Montserrat"), NameID 1 is Legacy Family (e.g. "Montserrat SemiBold")
+          if (names[16]) result.family = names[16];
+          else if (names[1]) result.family = names[1];
+
+          if (names[17]) result.subfamily = names[17];
+          else if (names[2]) result.subfamily = names[2];
+
+          // Also register legacy family alias if different (so PowerPoint references to "Montserrat SemiBold" match!)
+          if (names[1] && names[16] && names[1] !== names[16]) {
+            result.legacyAlias = names[1];
+          }
+        }
+      } catch (e) {
+        inferWeightStyleFromStr(fallbackFileName, result);
+      }
+
+      return result;
+    }
+
+    function inferWeightStyleFromStr(str, targetObj) {
+      const s = str.toLowerCase();
+      if (s.includes('thin') || s.includes('100')) targetObj.weight = '100';
+      else if (s.includes('extralight') || s.includes('200')) targetObj.weight = '200';
+      else if (s.includes('light') || s.includes('300')) targetObj.weight = '300';
+      else if (s.includes('medium') || s.includes('500')) targetObj.weight = '500';
+      else if (s.includes('semibold') || s.includes('demibold') || s.includes('600')) targetObj.weight = '600';
+      else if (s.includes('extrabold') || s.includes('ultrabold') || s.includes('800')) targetObj.weight = '800';
+      else if (s.includes('black') || s.includes('heavy') || s.includes('900')) targetObj.weight = '900';
+      else if (s.includes('bold') || s.includes('700')) targetObj.weight = '700';
+
+      if (s.includes('italic') || s.includes('oblique')) targetObj.style = 'italic';
+    }
+
+    async function registerFontBuffer(arrayBuffer, fileName, source = 'user', forcedFamily = null) {
+      const meta = inspectBinaryFontMetadata(arrayBuffer, fileName);
+      if (forcedFamily) meta.family = forcedFamily;
+
+      // Register primary family via FontFace API
+      const fontFace = new FontFace(meta.family, arrayBuffer, {
+        weight: meta.weight,
+        style: meta.style
+      });
+      await fontFace.load();
+      document.fonts.add(fontFace);
+
+      // If font has a legacy subfamily name (e.g. "Gilroy ExtraBold"), register alias too
+      if (meta.legacyAlias) {
+        try {
+          const aliasFace = new FontFace(meta.legacyAlias, arrayBuffer, {
+            weight: '400',
+            style: meta.style
+          });
+          await aliasFace.load();
+          document.fonts.add(aliasFace);
+          state.loadedFamilySet.add(meta.legacyAlias.toLowerCase());
+        } catch (e) {}
+      }
+
+      state.loadedFamilySet.add(meta.family.toLowerCase());
+      state.loadedFonts.push({
+        id: generateId(),
+        family: meta.family,
+        subfamily: meta.subfamily,
+        weight: meta.weight,
+        style: meta.style,
+        fileName,
+        source
+      });
+
+      return meta;
+    }
+
+    async function handleFontFiles(fileList) {
+      const files = Array.from(fileList);
+      if (!files.length) return;
+
+      const addedNames = [];
+      for (const file of files) {
+        try {
+          const buf = await file.arrayBuffer();
+          const meta = await registerFontBuffer(buf, file.name, 'user');
+          addedNames.push(`${meta.family} (${meta.subfamily})`);
+        } catch (err) {
+          console.error('Ошибка загрузки шрифта:', file.name, err);
+          showBanner(`Не удалось загрузить шрифт "${file.name}": ${err.message}`);
+        }
+      }
+
+      if (addedNames.length > 0) {
+        updateFontManagerUI();
+        if (state.pptxDecks.length > 0) {
+          state.pptxNeedsRerender = true;
+          dom.rerenderPptxBtn.classList.remove('hidden');
+          // Automatically re-render PPTX decks with the newly recognized fonts!
+          await rerenderAllPptxDecks();
+        } else {
+          showBanner(`Шрифты распознаны и подключены: ${addedNames.join(', ')}`);
+        }
+      }
+    }
+
+    function isFontAvailable(fontName) {
+      if (!fontName) return true;
+      const clean = fontName.trim().toLowerCase();
+      if (state.loadedFamilySet.has(clean)) return true;
+
+      // Check system/browser fonts via document.fonts.check
+      try {
+        if (document.fonts.check(`16px "${fontName}"`)) {
+          // Verify it's not silently falling back to default serif/sans-serif by measuring width
+          return isSystemFontInstalled(fontName);
+        }
+      } catch (e) {}
+      return false;
+    }
+
+    const _sysFontCache = {};
+    function isSystemFontInstalled(fontName) {
+      const key = fontName.toLowerCase();
+      if (key in _sysFontCache) return _sysFontCache[key];
+
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const sampleText = 'АБВГДЕЖЗИКЛМНОПРСТУФХЦЧШЩЫЭЮЯabcdefghijklmnopqrstuvwxyz0123456789';
+
+      ctx.font = '72px monospace';
+      const baseMono = ctx.measureText(sampleText).width;
+      ctx.font = '72px sans-serif';
+      const baseSans = ctx.measureText(sampleText).width;
+
+      ctx.font = `72px "${fontName}", monospace`;
+      const testMono = ctx.measureText(sampleText).width;
+      ctx.font = `72px "${fontName}", sans-serif`;
+      const testSans = ctx.measureText(sampleText).width;
+
+      const installed = (Math.abs(testMono - baseMono) > 0.5) || (Math.abs(testSans - baseSans) > 0.5);
+      _sysFontCache[key] = installed;
+      return installed;
+    }
+
+    const _googleFontCheckCache = {};
+
+    async function tryLoadFromGoogleFonts(fontFamily, silent = false) {
+      const cleanName = fontFamily.trim();
+      if (!cleanName) return false;
+
+      try {
+        const encoded = encodeURIComponent(cleanName);
+        const cssUrl = `https://fonts.googleapis.com/css2?family=${encoded}:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,400;1,700&display=swap`;
+        const resp = await fetch(cssUrl);
+        if (!resp.ok) {
+          _googleFontCheckCache[cleanName.toLowerCase()] = false;
+          if (!silent) showBanner(`Шрифт «${cleanName}» отсутствует в открытой базе Google Fonts (коммерческий/кастомный). Скачайте его по кнопке рядом.`);
+          return false;
+        }
+
+        const cssText = await resp.text();
+        // Inject stylesheet so browser loads all weights
+        const styleEl = document.createElement('style');
+        styleEl.textContent = cssText;
+        document.head.appendChild(styleEl);
+
+        // Extract direct .woff2/.ttf URLs from Google CSS and register via FontFace for guaranteed Canvas rendering
+        const urlMatches = [...cssText.matchAll(/url\((https:\/\/fonts\.gstatic\.com\/[^)]+)\)/g)];
+        if (urlMatches.length > 0) {
+          const fontFileResp = await fetch(urlMatches[0][1]);
+          const fontBuf = await fontFileResp.arrayBuffer();
+          await registerFontBuffer(fontBuf, `${cleanName}.woff2`, 'google_fonts', cleanName);
+        } else {
+          state.loadedFamilySet.add(cleanName.toLowerCase());
+        }
+
+        await document.fonts.load(`16px "${cleanName}"`);
+        _googleFontCheckCache[cleanName.toLowerCase()] = true;
+        updateFontManagerUI();
+        return true;
+      } catch (e) {
+        _googleFontCheckCache[cleanName.toLowerCase()] = false;
+        if (!silent) showBanner(`Не удалось загрузить «${cleanName}»: ${e.message}`);
+        return false;
+      }
+    }
+
+    async function autoFetchAllMissingGoogleFonts() {
+      const allRequired = new Set();
+      state.pptxDecks.forEach(d => d.requiredFonts.forEach(f => allRequired.add(f)));
+      const missing = Array.from(allRequired).filter(f => !isFontAvailable(f));
+      if (!missing.length) return;
+
+      const btn = document.getElementById('autoFetchGoogleFontsBtn');
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = '⏳ Поиск и загрузка шрифтов...';
+      }
+
+      let loadedCount = 0;
+      for (const fName of missing) {
+        const ok = await tryLoadFromGoogleFonts(fName, true);
+        if (ok) loadedCount++;
+      }
+
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '⬇ Автозагрузить найденные в Google Fonts';
+      }
+
+      updateFontManagerUI();
+      if (loadedCount > 0) {
+        await rerenderAllPptxDecks();
+        showBanner(`Автоматически загружено шрифтов: ${loadedCount}. Слайды PPTX перерисованы!`);
+      } else {
+        showBanner('Автозагрузка завершена: недостающие шрифты являются коммерческими/локальными — скачайте их через кнопки рядом с названием.');
+      }
+    }
+
+    function updateFontManagerUI() {
+      dom.fontStatusBadge.textContent = state.loadedFonts.length;
+
+      // 1. Collect all required fonts across loaded PPTX decks
+      const allRequired = new Set();
+      state.pptxDecks.forEach(d => d.requiredFonts.forEach(f => allRequired.add(f)));
+
+      const autoFetchBtn = document.getElementById('autoFetchGoogleFontsBtn');
+      const hasMissing = Array.from(allRequired).some(f => !isFontAvailable(f));
+      if (autoFetchBtn) {
+        if (hasMissing) autoFetchBtn.classList.remove('hidden');
+        else autoFetchBtn.classList.add('hidden');
+      }
+
+      if (allRequired.size === 0) {
+        dom.detectedFontsList.innerHTML = `
+          <div class="text-gray-500 italic bg-broadcast-card/40 border border-broadcast-border rounded-lg p-3">
+            Загрузите PPTX-файл — здесь появится список всех шрифтов, их статус, автопоиск в Google Fonts и ссылки на скачивание.
+          </div>
+        `;
+      } else {
+        dom.detectedFontsList.innerHTML = '';
+        allRequired.forEach(fontName => {
+          const ok = isFontAvailable(fontName);
+          const encodedQuery = encodeURIComponent(fontName);
+          const googleFontsSearchUrl = `https://fonts.google.com/?query=${encodedQuery}`;
+          const webSearchDownloadUrl = `https://www.google.com/search?q=${encodeURIComponent(fontName + ' шрифт скачать ttf otf')}`;
+
+          const row = document.createElement('div');
+          row.className = `flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 rounded-lg border ${
+            ok ? 'bg-emerald-950/20 border-emerald-500/30' : 'bg-amber-950/25 border-amber-500/40'
+          }`;
+
+          if (ok) {
+            row.innerHTML = `
+              <div class="flex items-center gap-2.5">
+                <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                <span class="font-semibold text-gray-100" style="font-family: '${fontName}', sans-serif">${fontName}</span>
+              </div>
+              <span class="font-mono text-[11px] text-emerald-400">✓ Распознан и активен</span>
+            `;
+          } else {
+            row.innerHTML = `
+              <div class="flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-amber-400 shrink-0"></span>
+                <div>
+                  <div class="font-semibold text-gray-100">${fontName}</div>
+                  <div class="text-[10px] text-amber-300/80">Не установлен в системе</div>
+                </div>
+              </div>
+              <div class="flex items-center gap-1.5 flex-wrap">
+                <button class="try-gf-btn bg-blue-600/80 hover:bg-blue-500 text-white text-[11px] font-medium px-2.5 py-1 rounded transition" title="Попробовать мгновенно подгрузить из Google Fonts">
+                  ⚡ Подгрузить онлайн
+                </button>
+                <a href="${googleFontsSearchUrl}" target="_blank" rel="noopener noreferrer" class="bg-gray-800 hover:bg-gray-700 border border-gray-600 text-gray-200 text-[11px] px-2.5 py-1 rounded transition">
+                  Google Fonts ↗
+                </a>
+                <a href="${webSearchDownloadUrl}" target="_blank" rel="noopener noreferrer" class="bg-gray-800 hover:bg-gray-700 border border-gray-600 text-amber-200 text-[11px] px-2.5 py-1 rounded transition">
+                  Скачать .TTF/.OTF ↗
+                </a>
+              </div>
+            `;
+
+            const tryBtn = row.querySelector('.try-gf-btn');
+            tryBtn.addEventListener('click', async () => {
+              tryBtn.disabled = true;
+              tryBtn.textContent = '⏳...';
+              const loaded = await tryLoadFromGoogleFonts(fontName, false);
+              if (loaded) {
+                await rerenderAllPptxDecks();
+              } else {
+                tryBtn.disabled = false;
+                tryBtn.textContent = 'Нет в Google Fonts';
+                tryBtn.classList.replace('bg-blue-600/80', 'bg-gray-700');
+              }
+            });
+          }
+
+          dom.detectedFontsList.appendChild(row);
+        });
+      }
+
+      // 2. Render loaded custom font files
+      if (state.loadedFonts.length === 0) {
+        dom.loadedFontsList.innerHTML = `
+          <div class="text-gray-500 italic bg-broadcast-card/40 border border-broadcast-border rounded-lg p-3">
+            Пользовательские шрифты ещё не загружены.
+          </div>
+        `;
+      } else {
+        dom.loadedFontsList.innerHTML = '';
+        state.loadedFonts.forEach((f, idx) => {
+          const row = document.createElement('div');
+          row.className = 'flex items-center justify-between px-3 py-2 rounded-lg bg-broadcast-card border border-broadcast-border';
+          row.innerHTML = `
+            <div class="min-w-0">
+              <div class="text-gray-100 font-semibold truncate" style="font-family: '${f.family}', sans-serif; font-weight: ${f.weight}; font-style: ${f.style}">
+                ${f.family} <span class="text-gray-400 font-normal text-[11px]">• ${f.subfamily} (weight: ${f.weight})</span>
+              </div>
+              <div class="text-[10px] text-gray-500 font-mono truncate">${f.fileName} ${f.source === 'pptx_embedded' ? '[встроен в PPTX]' : f.source === 'google_fonts' ? '[Google Fonts]' : ''}</div>
+            </div>
+            <button data-idx="${idx}" class="remove-font-btn text-gray-500 hover:text-red-400 px-2 py-1 text-xs">✕</button>
+          `;
+          row.querySelector('.remove-font-btn').addEventListener('click', () => {
+            state.loadedFonts.splice(idx, 1);
+            state.loadedFamilySet = new Set(state.loadedFonts.map(item => item.family.toLowerCase()));
+            updateFontManagerUI();
+          });
+          dom.loadedFontsList.appendChild(row);
+        });
+      }
+    }
+
+    // ==========================================
+    // 5. FILE PARSERS (PDF, PPTX COORDINATE + FONT ENGINE, MP4, IMAGES)
+    // ==========================================
+    async function handleFiles(fileList) {
+      const files = Array.from(fileList);
+      if (!files.length) return;
+
+      const fontFiles = [];
+      const mediaFiles = [];
+
+      for (const file of files) {
+        const ext = file.name.split('.').pop().toLowerCase();
+        if (['ttf', 'otf', 'woff', 'woff2'].includes(ext)) {
+          fontFiles.push(file);
+        } else {
+          mediaFiles.push(file);
+        }
+      }
+
+      // Load font files first so any PPTX dropped in the same batch immediately uses them!
+      if (fontFiles.length > 0) {
+        await handleFontFiles(fontFiles);
+      }
+
+      for (const file of mediaFiles) {
+        const ext = file.name.split('.').pop().toLowerCase();
+        try {
+          if (ext === 'pdf') {
+            await parsePDF(file);
+          } else if (ext === 'pptx') {
+            const deckId = generateId();
+            state.pptxDecks.push({ deckId, file, requiredFonts: new Set() });
+            await parsePPTX(file, deckId);
+          } else if (['mp4', 'webm', 'mov', 'm4v', 'mkv', 'avi', 'ogv', 'ogg', '3gp', 'ts', 'mts', 'm2ts', 'flv', 'wmv'].includes(ext)) {
+            await parseVideo(file);
+          } else if (['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'svg'].includes(ext)) {
+            await parseImage(file);
+          } else {
+            showBanner(`Формат .${ext} не поддерживается. Используйте PDF, PPTX, MP4, изображения или шрифты TTF/OTF.`);
+          }
+        } catch (err) {
+          console.error('Ошибка обработки файла:', file.name, err);
+          showBanner(`Не удалось загрузить "${file.name}": ${err.message}`);
+        }
+      }
+
+      setProgress(false);
+      renderPlaylist();
+      updateFontManagerUI();
+
+      if (state.currentIndex === -1 && state.cues.length > 0) {
+        goToCue(0);
+      } else {
+        updateMonitors();
+        syncOutputWindow();
+      }
+    }
+
+    async function rerenderAllPptxDecks() {
+      if (state.pptxDecks.length === 0) return;
+      const activeCueId = state.cues[state.currentIndex]?.id;
+
+      for (const deck of state.pptxDecks) {
+        // Find where this deck starts in state.cues
+        const firstIdx = state.cues.findIndex(c => c.deckId === deck.deckId);
+        // Remove old cues of this deck
+        state.cues = state.cues.filter(c => c.deckId !== deck.deckId);
+        // Re-parse PPTX with newly loaded fonts
+        const newCues = await parsePPTX(deck.file, deck.deckId, true);
+        const insertAt = firstIdx >= 0 ? Math.min(firstIdx, state.cues.length) : state.cues.length;
+        state.cues.splice(insertAt, 0, ...newCues);
+      }
+
+      setProgress(false);
+      state.pptxNeedsRerender = false;
+      dom.rerenderPptxBtn.classList.add('hidden');
+      renderPlaylist();
+      updateFontManagerUI();
+      updateMonitors();
+      syncOutputWindow();
+      showBanner('Слайды PPTX перерисованы с учётом загруженных шрифтов!');
+    }
+
+    // 5A. PDF PARSER
+    async function parsePDF(file) {
+      setProgress(true, `Рендеринг PDF: ${file.name}...`, 5);
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      const totalPages = pdf.numPages;
+
+      for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
+        setProgress(true, `PDF (${file.name}): стр. ${pageNum} из ${totalPages}`, (pageNum / totalPages) * 100);
+        const page = await pdf.getPage(pageNum);
+        const viewport = page.getViewport({ scale: 1.8 });
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+
+        await page.render({ canvasContext: ctx, viewport }).promise;
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+
+        const thumbCanvas = document.createElement('canvas');
+        const tScale = 240 / viewport.width;
+        thumbCanvas.width = 240;
+        thumbCanvas.height = viewport.height * tScale;
+        thumbCanvas.getContext('2d').drawImage(canvas, 0, 0, thumbCanvas.width, thumbCanvas.height);
+
+        state.cues.push({
+          id: generateId(),
+          type: 'image',
+          formatBadge: 'PDF',
+          title: `${file.name} — Слайд ${pageNum}`,
+          subtitle: `PDF страница ${pageNum} из ${totalPages}`,
+          src: dataUrl,
+          fileObj: null,
+          thumb: thumbCanvas.toDataURL('image/jpeg', 0.7),
+          duration: null,
+          loop: false
+        });
+      }
+    }
+
+    // 5B. COORDINATE-AWARE OPENXML PPTX RENDERER WITH FONT DETECTION
+    async function parsePPTX(file, deckId, returnArrayOnly = false) {
+      setProgress(true, `Анализ структуры и шрифтов PPTX: ${file.name}...`, 5);
+
+      const arrayBuffer = await file.arrayBuffer();
+      const zip = await JSZip.loadAsync(arrayBuffer);
+      const parser = new DOMParser();
+      const deckRecord = state.pptxDecks.find(d => d.deckId === deckId);
+      const generatedCues = [];
+
+      // 0. Check & extract any embedded fonts inside ppt/fonts/*
+      const embeddedFontPaths = Object.keys(zip.files).filter(p => p.startsWith('ppt/fonts/') && !zip.files[p].dir);
+      for (const fPath of embeddedFontPaths) {
+        try {
+          const ext = fPath.split('.').pop().toLowerCase();
+          if (['ttf', 'otf', 'woff'].includes(ext)) {
+            const fBuf = await zip.files[fPath].async('arraybuffer');
+            await registerFontBuffer(fBuf, fPath.split('/').pop(), 'pptx_embedded');
+          }
+        } catch (e) {}
+      }
+
+      // 1. Read presentation.xml for exact slide dimensions (EMU) and slide order
+      let slideWidthEmu = 12192000;
+      let slideHeightEmu = 6858000;
+      let orderedSlidePaths = [];
+
+      if (zip.files['ppt/presentation.xml']) {
+        const presXml = parser.parseFromString(await zip.files['ppt/presentation.xml'].async('string'), 'application/xml');
+        const sldSz = presXml.getElementsByTagName('p:sldSz')[0];
+        if (sldSz) {
+          slideWidthEmu = parseInt(sldSz.getAttribute('cx') || slideWidthEmu, 10);
+          slideHeightEmu = parseInt(sldSz.getAttribute('cy') || slideHeightEmu, 10);
+        }
+
+        if (zip.files['ppt/_rels/presentation.xml.rels']) {
+          const presRels = parser.parseFromString(await zip.files['ppt/_rels/presentation.xml.rels'].async('string'), 'application/xml');
+          const relMap = {};
+          Array.from(presRels.getElementsByTagName('Relationship')).forEach(r => {
+            relMap[r.getAttribute('Id')] = r.getAttribute('Target');
+          });
+
+          const sldIds = Array.from(presXml.getElementsByTagName('p:sldId'));
+          sldIds.forEach(node => {
+            const rId = node.getAttribute('r:id');
+            if (rId && relMap[rId]) {
+              const target = relMap[rId].replace(/^\/?ppt\//, '');
+              orderedSlidePaths.push('ppt/' + target);
+            }
+          });
+        }
+      }
+
+      if (orderedSlidePaths.length === 0) {
+        orderedSlidePaths = Object.keys(zip.files)
+          .filter(p => /^ppt\/slides\/slide\d+\.xml$/.test(p))
+          .sort((a, b) => parseInt(a.match(/slide(\d+)\.xml/)[1], 10) - parseInt(b.match(/slide(\d+)\.xml/)[1], 10));
+      }
+
+      // 2. Parse Theme colors & Theme Fonts (majorFont / minorFont)
+      const themeColors = {
+        dk1: '#000000', lt1: '#ffffff', dk2: '#1f2937', lt2: '#f3f4f6',
+        accent1: '#3b82f6', accent2: '#ef4444', accent3: '#10b981',
+        accent4: '#f59e0b', accent5: '#8b5cf6', accent6: '#06b6d4',
+        tx1: '#111827', tx2: '#4b5563', bg1: '#ffffff', bg2: '#f9fafb'
+      };
+      let themeMajorFont = 'Inter';
+      let themeMinorFont = 'Inter';
+
+      if (zip.files['ppt/theme/theme1.xml']) {
+        try {
+          const themeDoc = parser.parseFromString(await zip.files['ppt/theme/theme1.xml'].async('string'), 'application/xml');
+          const clrScheme = themeDoc.getElementsByTagName('a:clrScheme')[0];
+          if (clrScheme) {
+            Array.from(clrScheme.children).forEach(node => {
+              const key = node.localName;
+              const srgb = node.getElementsByTagName('a:srgbClr')[0];
+              const sys = node.getElementsByTagName('a:sysClr')[0];
+              if (srgb) themeColors[key] = '#' + srgb.getAttribute('val');
+              else if (sys && sys.getAttribute('lastClr')) themeColors[key] = '#' + sys.getAttribute('lastClr');
+            });
+            themeColors.tx1 = themeColors.dk1;
+            themeColors.tx2 = themeColors.dk2;
+            themeColors.bg1 = themeColors.lt1;
+            themeColors.bg2 = themeColors.lt2;
+          }
+
+          const majorLatin = themeDoc.getElementsByTagName('a:majorFont')[0]?.getElementsByTagName('a:latin')[0];
+          const minorLatin = themeDoc.getElementsByTagName('a:minorFont')[0]?.getElementsByTagName('a:latin')[0];
+          if (majorLatin?.getAttribute('typeface')) themeMajorFont = majorLatin.getAttribute('typeface');
+          if (minorLatin?.getAttribute('typeface')) themeMinorFont = minorLatin.getAttribute('typeface');
+        } catch (e) {}
+      }
+
+      // 3. Preload all media assets
+      const mediaAssetCache = {};
+      const mediaKeys = Object.keys(zip.files).filter(p => p.startsWith('ppt/media/'));
+      for (const mPath of mediaKeys) {
+        const blob = await zip.files[mPath].async('blob');
+        const ext = mPath.split('.').pop().toLowerCase();
+        const isVideo = ['mp4', 'mov', 'wmv', 'avi', 'webm', 'm4v'].includes(ext);
+        const url = URL.createObjectURL(blob);
+        let imgObj = null;
+        if (!isVideo) {
+          try {
+            imgObj = await loadImageAsync(url);
+          } catch (e) {}
+        }
+        mediaAssetCache[mPath] = { url, blob, isVideo, imgObj, name: mPath.split('/').pop() };
+      }
+
+      const canvasW = 1920;
+      const canvasH = Math.round(1920 * (slideHeightEmu / slideWidthEmu));
+      const scaleX = canvasW / slideWidthEmu;
+      const scaleY = canvasH / slideHeightEmu;
+
+      function resolveColor(parentNode, fallback = null) {
+        if (!parentNode) return fallback;
+        const srgb = parentNode.getElementsByTagName('a:srgbClr')[0];
+        if (srgb) {
+          let hex = '#' + srgb.getAttribute('val');
+          const alphaNode = srgb.getElementsByTagName('a:alpha')[0];
+          if (alphaNode) {
+            const alpha = parseInt(alphaNode.getAttribute('val'), 10) / 100000;
+            return hexToRgba(hex, alpha);
+          }
+          return hex;
+        }
+        const schemeClr = parentNode.getElementsByTagName('a:schemeClr')[0];
+        if (schemeClr) {
+          const val = schemeClr.getAttribute('val');
+          let baseHex = themeColors[val] || fallback || '#ffffff';
+          const alphaNode = schemeClr.getElementsByTagName('a:alpha')[0];
+          if (alphaNode && baseHex.startsWith('#')) {
+            const alpha = parseInt(alphaNode.getAttribute('val'), 10) / 100000;
+            return hexToRgba(baseHex, alpha);
+          }
+          return baseHex;
+        }
+        return fallback;
+      }
+
+      function resolveFontFace(rPrNode) {
+        if (!rPrNode) return themeMinorFont;
+        const latin = rPrNode.getElementsByTagName('a:latin')[0];
+        const cs = rPrNode.getElementsByTagName('a:cs')[0];
+        let tf = latin?.getAttribute('typeface') || cs?.getAttribute('typeface') || '';
+
+        if (!tf || tf === '+mn-lt') return themeMinorFont;
+        if (tf === '+mj-lt') return themeMajorFont;
+        return tf;
+      }
+
+      async function getRelsMap(xmlPath) {
+        const parts = xmlPath.split('/');
+        const fileName = parts.pop();
+        const relsPath = [...parts, '_rels', fileName + '.rels'].join('/');
+        const map = {};
+        if (zip.files[relsPath]) {
+          const relsDoc = parser.parseFromString(await zip.files[relsPath].async('string'), 'application/xml');
+          Array.from(relsDoc.getElementsByTagName('Relationship')).forEach(r => {
+            const id = r.getAttribute('Id');
+            const target = r.getAttribute('Target') || '';
+            const resolved = resolveRelativeZipPath(xmlPath, target);
+            map[id] = { target: resolved, type: r.getAttribute('Type') || '' };
+          });
+        }
+        return map;
+      }
+
+      for (let i = 0; i < orderedSlidePaths.length; i++) {
+        const sPath = orderedSlidePaths[i];
+        const slideNum = i + 1;
+        setProgress(true, `Рендеринг PPTX (${file.name}): слайд ${slideNum} из ${orderedSlidePaths.length}`, (slideNum / orderedSlidePaths.length) * 100);
+
+        if (!zip.files[sPath]) continue;
+        const slideDoc = parser.parseFromString(await zip.files[sPath].async('string'), 'application/xml');
+        const slideRels = await getRelsMap(sPath);
+
+        let layoutDoc = null, layoutRels = {};
+        let masterDoc = null, masterRels = {};
+        const layoutRel = Object.values(slideRels).find(r => r.type.includes('slideLayout'));
+        if (layoutRel && zip.files[layoutRel.target]) {
+          layoutDoc = parser.parseFromString(await zip.files[layoutRel.target].async('string'), 'application/xml');
+          layoutRels = await getRelsMap(layoutRel.target);
+          const masterRel = Object.values(layoutRels).find(r => r.type.includes('slideMaster'));
+          if (masterRel && zip.files[masterRel.target]) {
+            masterDoc = parser.parseFromString(await zip.files[masterRel.target].async('string'), 'application/xml');
+            masterRels = await getRelsMap(masterRel.target);
+          }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = canvasW;
+        canvas.height = canvasH;
+        const ctx = canvas.getContext('2d');
+
+        ctx.fillStyle = themeColors.bg1 || '#ffffff';
+        ctx.fillRect(0, 0, canvasW, canvasH);
+
+        // Background
+        const bgSources = [
+          { doc: slideDoc, rels: slideRels },
+          { doc: layoutDoc, rels: layoutRels },
+          { doc: masterDoc, rels: masterRels }
+        ];
+
+        for (const src of bgSources) {
+          if (!src.doc) continue;
+          const bgNode = src.doc.getElementsByTagName('p:bg')[0];
+          if (bgNode) {
+            const blip = bgNode.getElementsByTagName('a:blip')[0];
+            const solidFill = bgNode.getElementsByTagName('a:solidFill')[0];
+            const gradFill = bgNode.getElementsByTagName('a:gradFill')[0];
+
+            if (blip) {
+              const embedId = blip.getAttribute('r:embed');
+              const asset = embedId && src.rels[embedId] ? mediaAssetCache[src.rels[embedId].target] : null;
+              if (asset && asset.imgObj) {
+                drawImageCover(ctx, asset.imgObj, 0, 0, canvasW, canvasH);
+                break;
+              }
+            } else if (gradFill) {
+              const stops = Array.from(gradFill.getElementsByTagName('a:gs'));
+              if (stops.length >= 2) {
+                const grad = ctx.createLinearGradient(0, 0, canvasW, canvasH);
+                stops.forEach(gs => {
+                  const pos = Math.min(1, Math.max(0, parseInt(gs.getAttribute('pos') || '0', 10) / 100000));
+                  const col = resolveColor(gs, '#111827');
+                  grad.addColorStop(pos, col);
+                });
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, 0, canvasW, canvasH);
+                break;
+              }
+            } else if (solidFill) {
+              const col = resolveColor(solidFill, null);
+              if (col) {
+                ctx.fillStyle = col;
+                ctx.fillRect(0, 0, canvasW, canvasH);
+                break;
+              }
+            }
+          }
+        }
+
+        // Shape Tree
+        const spTree = slideDoc.getElementsByTagName('p:spTree')[0];
+        let slideTitleText = '';
+        const embeddedVideos = [];
+
+        if (spTree) {
+          renderShapeTreeChildren(spTree, {
+            ctx,
+            scaleX,
+            scaleY,
+            slideRels,
+            mediaAssetCache,
+            resolveColor,
+            resolveFontFace,
+            themeColors,
+            onFontUsed: (fontFamily) => {
+              if (deckRecord && fontFamily && !fontFamily.startsWith('+')) {
+                deckRecord.requiredFonts.add(fontFamily);
+              }
+            },
+            onTextFound: (txt) => {
+              if (!slideTitleText && txt.trim().length > 1) {
+                slideTitleText = txt.trim();
+              }
+            },
+            onVideoFound: (vidAsset) => {
+              embeddedVideos.push(vidAsset);
+            }
+          });
+        }
+
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+
+        const thumbCanvas = document.createElement('canvas');
+        thumbCanvas.width = 240;
+        thumbCanvas.height = Math.round(240 * (canvasH / canvasW));
+        thumbCanvas.getContext('2d').drawImage(canvas, 0, 0, thumbCanvas.width, thumbCanvas.height);
+
+        const cueObj = {
+          id: generateId(),
+          deckId,
+          type: 'image',
+          formatBadge: 'PPTX',
+          title: slideTitleText ? slideTitleText.slice(0, 48) : `${file.name} — Слайд ${slideNum}`,
+          subtitle: `PPTX слайд ${slideNum} из ${orderedSlidePaths.length}`,
+          src: dataUrl,
+          fileObj: null,
+          thumb: thumbCanvas.toDataURL('image/jpeg', 0.72),
+          duration: null,
+          loop: false
+        };
+
+        generatedCues.push(cueObj);
+        if (!returnArrayOnly) state.cues.push(cueObj);
+
+        for (const vAsset of embeddedVideos) {
+          const vidCue = {
+            id: generateId(),
+            deckId,
+            type: 'video',
+            formatBadge: 'PPTX-VID',
+            title: `Видео со слайда ${slideNum} (${vAsset.name})`,
+            subtitle: `Встроенное видео из ${file.name}`,
+            src: vAsset.url,
+            fileObj: vAsset.blob,
+            thumb: thumbCanvas.toDataURL('image/jpeg', 0.7),
+            duration: 0,
+            loop: false
+          };
+          generatedCues.push(vidCue);
+          if (!returnArrayOnly) state.cues.push(vidCue);
+        }
+      }
+
+      // Automatically try fetching missing fonts from Google Fonts first, then notify about remaining commercial/custom fonts
+      if (deckRecord && !returnArrayOnly) {
+        let missing = Array.from(deckRecord.requiredFonts).filter(f => !isFontAvailable(f));
+        if (missing.length > 0) {
+          setProgress(true, `Поиск шрифтов PPTX в облаке (${missing.join(', ')})...`, 96);
+          let autoLoadedAny = false;
+          for (const fontName of missing) {
+            const loaded = await tryLoadFromGoogleFonts(fontName, true);
+            if (loaded) autoLoadedAny = true;
+          }
+          if (autoLoadedAny) {
+            // Re-render once with the newly fetched cloud fonts
+            const freshCues = await parsePPTX(file, deckId, true);
+            state.cues = state.cues.filter(c => c.deckId !== deckId);
+            state.cues.push(...freshCues);
+          }
+          missing = Array.from(deckRecord.requiredFonts).filter(f => !isFontAvailable(f));
+          if (missing.length > 0) {
+            showBanner(`Не найдены локально: ${missing.slice(0, 3).join(', ')}${missing.length > 3 ? '...' : ''}. Нажмите «Открыть менеджер шрифтов», чтобы скачать .TTF/.OTF.`, true);
+          }
+        }
+      }
+
+      return generatedCues;
+    }
+
+    function renderShapeTreeChildren(containerNode, opts, offsetX = 0, offsetY = 0) {
+      const { ctx, scaleX, scaleY, slideRels, mediaAssetCache, resolveColor, resolveFontFace, themeColors, onFontUsed, onTextFound, onVideoFound } = opts;
+
+      Array.from(containerNode.children).forEach(node => {
+        const tag = node.localName;
+
+        // Group shape (<p:grpSp>)
+        if (tag === 'grpSp') {
+          const grpPr = node.getElementsByTagName('p:grpSpPr')[0];
+          let gx = offsetX, gy = offsetY;
+          if (grpPr) {
+            const xfrm = grpPr.getElementsByTagName('a:xfrm')[0];
+            if (xfrm) {
+              const off = xfrm.getElementsByTagName('a:off')[0];
+              const chOff = xfrm.getElementsByTagName('a:chOff')[0];
+              if (off) {
+                gx += parseInt(off.getAttribute('x') || '0', 10) - parseInt(chOff?.getAttribute('x') || '0', 10);
+                gy += parseInt(off.getAttribute('y') || '0', 10) - parseInt(chOff?.getAttribute('y') || '0', 10);
+              }
+            }
+          }
+          renderShapeTreeChildren(node, opts, gx, gy);
+          return;
+        }
+
+        // Picture (<p:pic>)
+        if (tag === 'pic') {
+          const spPr = node.getElementsByTagName('p:spPr')[0];
+          const xfrm = spPr?.getElementsByTagName('a:xfrm')[0];
+          const off = xfrm?.getElementsByTagName('a:off')[0];
+          const ext = xfrm?.getElementsByTagName('a:ext')[0];
+          if (!off || !ext) return;
+
+          const x = (parseInt(off.getAttribute('x') || '0', 10) + offsetX) * scaleX;
+          const y = (parseInt(off.getAttribute('y') || '0', 10) + offsetY) * scaleY;
+          const w = parseInt(ext.getAttribute('cx') || '0', 10) * scaleX;
+          const h = parseInt(ext.getAttribute('cy') || '0', 10) * scaleY;
+
+          const videoFile = node.getElementsByTagName('a:videoFile')[0];
+          if (videoFile) {
+            const linkId = videoFile.getAttribute('r:link');
+            const vAsset = linkId && slideRels[linkId] ? mediaAssetCache[slideRels[linkId].target] : null;
+            if (vAsset && vAsset.isVideo) {
+              onVideoFound(vAsset);
+            }
+          }
+
+          const blipFill = node.getElementsByTagName('p:blipFill')[0];
+          const blip = blipFill?.getElementsByTagName('a:blip')[0];
+          const embedId = blip?.getAttribute('r:embed');
+          const asset = embedId && slideRels[embedId] ? mediaAssetCache[slideRels[embedId].target] : null;
+
+          if (asset && asset.imgObj && w > 0 && h > 0) {
+            ctx.save();
+            const srcRect = blipFill.getElementsByTagName('a:srcRect')[0];
+            if (srcRect) {
+              const l = parseInt(srcRect.getAttribute('l') || '0', 10) / 100000;
+              const t = parseInt(srcRect.getAttribute('t') || '0', 10) / 100000;
+              const r = parseInt(srcRect.getAttribute('r') || '0', 10) / 100000;
+              const b = parseInt(srcRect.getAttribute('b') || '0', 10) / 100000;
+              const sx = asset.imgObj.width * l;
+              const sy = asset.imgObj.height * t;
+              const sw = Math.max(1, asset.imgObj.width * (1 - l - r));
+              const sh = Math.max(1, asset.imgObj.height * (1 - t - b));
+              ctx.drawImage(asset.imgObj, sx, sy, sw, sh, x, y, w, h);
+            } else {
+              ctx.drawImage(asset.imgObj, x, y, w, h);
+            }
+            ctx.restore();
+          }
+          return;
+        }
+
+        // Shape / TextBox (<p:sp>)
+        if (tag === 'sp') {
+          const spPr = node.getElementsByTagName('p:spPr')[0];
+          const xfrm = spPr?.getElementsByTagName('a:xfrm')[0];
+          const off = xfrm?.getElementsByTagName('a:off')[0];
+          const ext = xfrm?.getElementsByTagName('a:ext')[0];
+          if (!off || !ext) return;
+
+          const x = (parseInt(off.getAttribute('x') || '0', 10) + offsetX) * scaleX;
+          const y = (parseInt(off.getAttribute('y') || '0', 10) + offsetY) * scaleY;
+          const w = parseInt(ext.getAttribute('cx') || '0', 10) * scaleX;
+          const h = parseInt(ext.getAttribute('cy') || '0', 10) * scaleY;
+
+          const solidFill = spPr.getElementsByTagName('a:solidFill')[0];
+          if (solidFill && w > 0 && h > 0) {
+            const fillCol = resolveColor(solidFill, null);
+            if (fillCol) {
+              ctx.fillStyle = fillCol;
+              const prstGeom = spPr.getElementsByTagName('a:prstGeom')[0]?.getAttribute('prst');
+              if (prstGeom === 'ellipse') {
+                ctx.beginPath();
+                ctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2);
+                ctx.fill();
+              } else if (prstGeom === 'roundRect') {
+                roundRectCanvas(ctx, x, y, w, h, Math.min(w, h) * 0.12);
+                ctx.fill();
+              } else {
+                ctx.fillRect(x, y, w, h);
+              }
+            }
+          }
+
+          const ln = spPr.getElementsByTagName('a:ln')[0];
+          if (ln && ln.getElementsByTagName('a:solidFill')[0]) {
+            const strokeCol = resolveColor(ln.getElementsByTagName('a:solidFill')[0], null);
+            if (strokeCol) {
+              ctx.strokeStyle = strokeCol;
+              ctx.lineWidth = Math.max(1, (parseInt(ln.getAttribute('w') || '12700', 10) * scaleX));
+              ctx.strokeRect(x, y, w, h);
+            }
+          }
+
+          // Rich Text Body (<p:txBody>) with per-run font family, weight, italic, size & color
+          const txBody = node.getElementsByTagName('p:txBody')[0];
+          if (txBody && w > 10 && h > 10) {
+            const bodyPr = txBody.getElementsByTagName('a:bodyPr')[0];
+            const padL = bodyPr?.getAttribute('lIns') ? parseInt(bodyPr.getAttribute('lIns'), 10) * scaleX : 12;
+            const padR = bodyPr?.getAttribute('rIns') ? parseInt(bodyPr.getAttribute('rIns'), 10) * scaleX : 12;
+            const padT = bodyPr?.getAttribute('tIns') ? parseInt(bodyPr.getAttribute('tIns'), 10) * scaleY : 8;
+            const anchor = bodyPr?.getAttribute('anchor') || 't';
+
+            const innerW = Math.max(20, w - padL - padR);
+            const pNodes = Array.from(txBody.getElementsByTagName('a:p'));
+
+            const renderedLines = [];
+            let fullBoxText = '';
+
+            pNodes.forEach(pNode => {
+              const pPr = pNode.getElementsByTagName('a:pPr')[0];
+              const algn = pPr?.getAttribute('algn') || 'l';
+              const hasBullet = pNode.getElementsByTagName('a:buChar')[0] || pNode.getElementsByTagName('a:buAutoNum')[0];
+              const defRPr = pPr?.getElementsByTagName('a:defRPr')[0];
+
+              const rNodes = Array.from(pNode.getElementsByTagName('a:r'));
+              if (rNodes.length === 0) {
+                renderedLines.push({ segments: [], lineHeight: 26, algn });
+                return;
+              }
+
+              // Build styled segments for this paragraph
+              const segments = [];
+              if (hasBullet) {
+                const firstRPr = rNodes[0].getElementsByTagName('a:rPr')[0] || defRPr;
+                const bFont = resolveFontFace(firstRPr);
+                const bPt = firstRPr?.getAttribute('sz') ? parseInt(firstRPr.getAttribute('sz'), 10) / 100 : 18;
+                const bPx = Math.max(12, Math.round(bPt * 12700 * scaleY));
+                const bCol = resolveColor(firstRPr?.getElementsByTagName('a:solidFill')[0], themeColors.tx1 || '#111827');
+                segments.push({ text: '• ', font: bFont, fontSize: bPx, bold: false, italic: false, color: bCol });
+              }
+
+              rNodes.forEach(rNode => {
+                const tText = rNode.getElementsByTagName('a:t')[0]?.textContent || '';
+                if (!tText) return;
+                fullBoxText += tText;
+
+                const rPr = rNode.getElementsByTagName('a:rPr')[0] || defRPr;
+                const fontFamily = resolveFontFace(rPr);
+                onFontUsed(fontFamily);
+
+                const fontPt = rPr?.getAttribute('sz')
+                  ? parseInt(rPr.getAttribute('sz'), 10) / 100
+                  : (defRPr?.getAttribute('sz') ? parseInt(defRPr.getAttribute('sz'), 10) / 100 : 18);
+                const fontPx = Math.max(12, Math.round(fontPt * 12700 * scaleY));
+                const isBold = rPr?.getAttribute('b') === '1';
+                const isItalic = rPr?.getAttribute('i') === '1';
+                const col = resolveColor(
+                  rPr?.getElementsByTagName('a:solidFill')[0],
+                  resolveColor(defRPr?.getElementsByTagName('a:solidFill')[0], themeColors.tx1 || '#111827')
+                );
+
+                segments.push({
+                  text: tText,
+                  font: fontFamily,
+                  fontSize: fontPx,
+                  bold: isBold,
+                  italic: isItalic,
+                  color: col
+                });
+              });
+
+              fullBoxText += ' ';
+
+              // Word-wrap styled segments into lines
+              const wrappedLines = wrapStyledSegments(ctx, segments, innerW, algn);
+              renderedLines.push(...wrappedLines);
+            });
+
+            if (fullBoxText.trim()) {
+              onTextFound(fullBoxText.trim());
+            }
+
+            const totalTextH = renderedLines.reduce((acc, l) => acc + l.lineHeight, 0);
+            let drawY = y + padT;
+            if (anchor === 'ctr') {
+              drawY = y + Math.max(padT, (h - totalTextH) / 2);
+            } else if (anchor === 'b') {
+              drawY = y + Math.max(padT, h - totalTextH - 8);
+            }
+
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(x, y, w, h);
+            ctx.clip();
+
+            renderedLines.forEach(line => {
+              if (!line.segments || line.segments.length === 0) {
+                drawY += line.lineHeight * 0.6;
+                return;
+              }
+
+              // Calculate total width of line for center / right alignment
+              let lineWidth = 0;
+              line.segments.forEach(seg => {
+                ctx.font = buildCanvasFontString(seg);
+                lineWidth += ctx.measureText(seg.text).width;
+              });
+
+              let cursorX = x + padL;
+              if (line.algn === 'ctr') {
+                cursorX = x + (w - lineWidth) / 2;
+              } else if (line.algn === 'r') {
+                cursorX = x + w - padR - lineWidth;
+              }
+
+              ctx.textAlign = 'left';
+              ctx.textBaseline = 'top';
+
+              line.segments.forEach(seg => {
+                ctx.font = buildCanvasFontString(seg);
+                ctx.fillStyle = seg.color;
+                ctx.fillText(seg.text, cursorX, drawY);
+                cursorX += ctx.measureText(seg.text).width;
+              });
+
+              drawY += line.lineHeight;
+            });
+
+            ctx.restore();
+          }
+        }
+      });
+    }
+
+    function buildCanvasFontString(seg) {
+      const style = seg.italic ? 'italic' : 'normal';
+      const weight = seg.bold ? '700' : '400';
+      return `${style} ${weight} ${seg.fontSize}px "${seg.font}", Inter, sans-serif`;
+    }
+
+    function wrapStyledSegments(ctx, segments, maxWidth, algn) {
+      const lines = [];
+      let currentLineSegs = [];
+      let currentWidth = 0;
+      let maxFontSize = 18;
+
+      const flushLine = () => {
+        lines.push({
+          segments: currentLineSegs,
+          lineHeight: Math.round(maxFontSize * 1.22),
+          algn
+        });
+        currentLineSegs = [];
+        currentWidth = 0;
+        maxFontSize = 18;
+      };
+
+      segments.forEach(seg => {
+        ctx.font = buildCanvasFontString(seg);
+        // Split preserving spaces so spacing between runs stays exact
+        const tokens = seg.text.split(/(\s+)/);
+
+        tokens.forEach(tok => {
+          if (!tok) return;
+          const tokW = ctx.measureText(tok).width;
+
+          if (currentWidth + tokW > maxWidth && currentLineSegs.length > 0 && tok.trim() !== '') {
+            flushLine();
+          }
+
+          if (currentLineSegs.length === 0 && tok.trim() === '') return;
+
+          currentLineSegs.push({ ...seg, text: tok });
+          currentWidth += tokW;
+          if (seg.fontSize > maxFontSize) maxFontSize = seg.fontSize;
+        });
+      });
+
+      if (currentLineSegs.length > 0) {
+        flushLine();
+      }
+      return lines;
+    }
+
+    function resolveRelativeZipPath(baseFile, target) {
+      const baseParts = baseFile.split('/');
+      baseParts.pop();
+      const targetParts = target.split('/');
+      for (const part of targetParts) {
+        if (part === '..') baseParts.pop();
+        else if (part !== '.') baseParts.push(part);
+      }
+      return baseParts.join('/');
+    }
+
+    function hexToRgba(hex, alpha = 1) {
+      const clean = hex.replace('#', '');
+      if (clean.length !== 6) return hex;
+      const r = parseInt(clean.substring(0, 2), 16);
+      const g = parseInt(clean.substring(2, 4), 16);
+      const b = parseInt(clean.substring(4, 6), 16);
+      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    }
+
+    function drawImageCover(ctx, img, x, y, w, h) {
+      const scale = Math.max(w / img.width, h / img.height);
+      const dw = img.width * scale;
+      const dh = img.height * scale;
+      ctx.drawImage(img, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
+    }
+
+    function roundRectCanvas(ctx, x, y, w, h, r) {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + w, y, x + w, y + h, r);
+      ctx.arcTo(x + w, y + h, x, y + h, r);
+      ctx.arcTo(x, y + h, x, y, r);
+      ctx.arcTo(x, y, x + w, y, r);
+      ctx.closePath();
+    }
+
+    function loadImageAsync(url) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = url;
+      });
+    }
+
+    function drawWrappedText(ctx, text, x, y, maxWidth, lineHeight, maxLines = 4) {
+      const words = text.split(' ');
+      let line = '';
+      let linesDrawn = 0;
+
+      for (let n = 0; n < words.length; n++) {
+        const testLine = line + words[n] + ' ';
+        const metrics = ctx.measureText(testLine);
+        if (metrics.width > maxWidth && n > 0) {
+          ctx.fillText(line.trim(), x, y);
+          line = words[n] + ' ';
+          y += lineHeight;
+          linesDrawn++;
+          if (linesDrawn >= maxLines) return y;
+        } else {
+          line = testLine;
+        }
+      }
+      ctx.fillText(line.trim(), x, y);
+      return y + lineHeight;
+    }
+
+    // 5C. VIDEO PARSER (MP4, MOV, WEBM, MKV, AVI, M4V, OGV, TS, etc.)
+    function parseVideo(file) {
+      return new Promise((resolve) => {
+        setProgress(true, `Загрузка видео: ${file.name}...`, 50);
+        const ext = file.name.split('.').pop().toUpperCase();
+        const badge = ext.length <= 5 ? ext : 'VIDEO';
+        const url = URL.createObjectURL(file);
+        const tempVid = document.createElement('video');
+        tempVid.preload = 'metadata';
+        tempVid.muted = true;
+        tempVid.playsInline = true;
+        tempVid.src = url;
+
+        let settled = false;
+        const finish = (cueData) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(fallbackTimer);
+          state.cues.push(cueData);
+          resolve();
+        };
+
+        // Fallback if seeked never fires (e.g., streaming container or unusual codec)
+        const fallbackTimer = setTimeout(() => {
+          const resInfo = (tempVid.videoWidth && tempVid.videoHeight) ? `${tempVid.videoWidth}×${tempVid.videoHeight} • ` : '';
+          finish({
+            id: generateId(),
+            type: 'video',
+            formatBadge: badge,
+            title: file.name,
+            subtitle: `${badge} • ${resInfo}${formatTime(tempVid.duration)}`,
+            src: url,
+            fileObj: file,
+            thumb: null,
+            duration: isFinite(tempVid.duration) ? tempVid.duration : 0,
+            loop: false
+          });
+        }, 3500);
+
+        tempVid.onloadeddata = () => {
+          if (tempVid.duration && isFinite(tempVid.duration) && tempVid.duration > 0) {
+            tempVid.currentTime = Math.min(1, tempVid.duration / 4);
+          } else {
+            const canvas = document.createElement('canvas');
+            canvas.width = 240;
+            canvas.height = 135;
+            canvas.getContext('2d').drawImage(tempVid, 0, 0, canvas.width, canvas.height);
+            finish({
+              id: generateId(),
+              type: 'video',
+              formatBadge: badge,
+              title: file.name,
+              subtitle: `${badge} видео`,
+              src: url,
+              fileObj: file,
+              thumb: canvas.toDataURL('image/jpeg', 0.75),
+              duration: 0,
+              loop: false
+            });
+          }
+        };
+
+        tempVid.onseeked = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = 240;
+          canvas.height = 135;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(tempVid, 0, 0, canvas.width, canvas.height);
+          const resInfo = (tempVid.videoWidth && tempVid.videoHeight) ? `${tempVid.videoWidth}×${tempVid.videoHeight} • ` : '';
+
+          finish({
+            id: generateId(),
+            type: 'video',
+            formatBadge: badge,
+            title: file.name,
+            subtitle: `${badge} • ${resInfo}${formatTime(tempVid.duration)}`,
+            src: url,
+            fileObj: file,
+            thumb: canvas.toDataURL('image/jpeg', 0.75),
+            duration: tempVid.duration,
+            loop: false
+          });
+        };
+
+        tempVid.onerror = () => {
+          showBanner(`Контейнер .${ext} (${file.name}) добавлен, но его видеокодек (например, ProRes/HEVC/WMV) может не поддерживаться этим браузером. Рекомендуется H.264/MP4 или WebM.`);
+          finish({
+            id: generateId(),
+            type: 'video',
+            formatBadge: badge,
+            title: file.name,
+            subtitle: `${badge} • проверьте кодек в браузере`,
+            src: url,
+            fileObj: file,
+            thumb: null,
+            duration: 0,
+            loop: false
+          });
+        };
+      });
+    }
+
+    // 5D. IMAGE PARSER
+    async function parseImage(file) {
+      setProgress(true, `Загрузка изображения: ${file.name}...`, 70);
+      const url = URL.createObjectURL(file);
+      state.cues.push({
+        id: generateId(),
+        type: 'image',
+        formatBadge: 'IMG',
+        title: file.name,
+        subtitle: 'Графический слайд',
+        src: url,
+        fileObj: file,
+        thumb: url,
+        duration: null,
+        loop: false
+      });
+    }
+
+    // ==========================================
+    // 6. DEMO SHOW GENERATOR
+    // ==========================================
+    function loadDemoDeck() {
+      const demoSlides = [
+        {
+          title: 'SHOWDECK PRO // LIVE',
+          sub: 'Единый эфирный плейлист для мероприятий: PDF + PPTX + MP4 + Шрифты',
+          accent: '#3b82f6',
+          tag: 'ЗАСТАВКА МЕРОПРИЯТИЯ'
+        },
+        {
+          title: 'АВТОРАСПОЗНАВАНИЕ ШРИФТОВ',
+          sub: 'Нажмите «Aa Шрифты» сверху или перетащите .TTF / .OTF файлы — система сама определит гарнитуру и перерисует PPTX',
+          accent: '#10b981',
+          tag: 'СЛАЙД 02 • ТИПОГРАФИКА'
+        },
+        {
+          title: 'ДВУХЭКРАННЫЙ РЕЖИМ (PGM / PVW)',
+          sub: 'Нажмите «Экран вывода (Output)» сверху и перетащите окно на проектор или LED-процессор',
+          accent: '#f59e0b',
+          tag: 'СЛАЙД 03 • ИНСТРУКЦИЯ'
+        }
+      ];
+
+      demoSlides.forEach((s, idx) => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 1280;
+        canvas.height = 720;
+        const ctx = canvas.getContext('2d');
+
+        const grad = ctx.createRadialGradient(640, 360, 80, 640, 360, 800);
+        grad.addColorStop(0, '#1e2433');
+        grad.addColorStop(1, '#090b10');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, 1280, 720);
+
+        ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+        ctx.lineWidth = 1;
+        for (let x = 0; x < 1280; x += 80) {
+          ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 720); ctx.stroke();
+        }
+        for (let y = 0; y < 720; y += 80) {
+          ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(1280, y); ctx.stroke();
+        }
+
+        ctx.fillStyle = s.accent;
+        ctx.font = 'bold 18px JetBrains Mono, monospace';
+        ctx.fillText(s.tag, 90, 230);
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 58px Inter, sans-serif';
+        ctx.fillText(s.title, 90, 315);
+
+        ctx.fillStyle = '#9ca3af';
+        ctx.font = '28px Inter, sans-serif';
+        drawWrappedText(ctx, s.sub, 90, 385, 1080, 42, 3);
+
+        ctx.fillStyle = '#4b5563';
+        ctx.font = '18px JetBrains Mono, monospace';
+        ctx.fillText(`DEMO CUE 0${idx + 1} • НАЖМИТЕ СТРЕЛКУ ВПРАВО [→] НА КЛИКЕРЕ`, 90, 640);
+
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+        state.cues.push({
+          id: generateId(),
+          type: 'image',
+          formatBadge: 'DEMO',
+          title: s.title,
+          subtitle: s.tag,
+          src: dataUrl,
+          fileObj: null,
+          thumb: dataUrl,
+          duration: null,
+          loop: false
+        });
+      });
+
+      addBlackoutCue(false);
+      renderPlaylist();
+      goToCue(0);
+    }
+
+    function addBlackoutCue(selectAfter = true) {
+      state.cues.push({
+        id: generateId(),
+        type: 'blackout',
+        formatBadge: 'BLK',
+        title: 'Чёрный экран (Blackout Cue)',
+        subtitle: 'Пауза / Затемнение между блоками',
+        src: null,
+        fileObj: null,
+        thumb: null,
+        duration: null,
+        loop: false
+      });
+      renderPlaylist();
+      if (selectAfter) {
+        goToCue(state.cues.length - 1);
+      } else {
+        updateMonitors();
+        syncOutputWindow();
+      }
+    }
+
+    // ==========================================
+    // 7. PLAYLIST RENDERING & DRAG-AND-DROP
+    // ==========================================
+    function renderPlaylist() {
+      dom.cueCountBadge.textContent = state.cues.length;
+      dom.cueListContainer.innerHTML = '';
+
+      if (state.cues.length === 0) {
+        dom.cueListContainer.innerHTML = `
+          <div class="h-full flex flex-col items-center justify-center text-center p-6 border-2 border-dashed border-broadcast-border rounded-xl text-gray-500">
+            <svg class="w-10 h-10 mb-2 text-gray-600" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+            </svg>
+            <div class="text-xs font-medium text-gray-300">Плейлист пуст</div>
+            <div class="text-[11px] mt-1">Перетащите PDF, PPTX, MP4 или шрифты .TTF/.OTF сюда</div>
+          </div>
+        `;
+        return;
+      }
+
+      state.cues.forEach((cue, index) => {
+        const isLive = index === state.currentIndex;
+        const isNext = index === state.currentIndex + 1;
+
+        const item = document.createElement('div');
+        item.draggable = true;
+        item.dataset.id = cue.id;
+        item.dataset.index = index;
+
+        let borderClass = 'border-broadcast-border bg-broadcast-card/70 hover:bg-broadcast-card';
+        if (isLive) borderClass = 'border-red-500 bg-red-950/25 ring-1 ring-red-500/40';
+        else if (isNext) borderClass = 'border-emerald-500/60 bg-emerald-950/15';
+
+        item.className = `cue-item group relative flex items-center gap-2.5 p-2 rounded-lg border cursor-pointer transition-all ${borderClass}`;
+
+        let badgeStyle = 'bg-gray-800 text-gray-300';
+        if (cue.formatBadge === 'PDF') badgeStyle = 'bg-rose-500/20 text-rose-300 border border-rose-500/30';
+        if (cue.formatBadge === 'PPTX') badgeStyle = 'bg-orange-500/20 text-orange-300 border border-orange-500/30';
+        if (cue.type === 'video' || ['MP4', 'MOV', 'WEBM', 'MKV', 'AVI', 'M4V', 'VIDEO', 'PPTX-VID'].includes(cue.formatBadge)) badgeStyle = 'bg-blue-500/20 text-blue-300 border border-blue-500/30';
+        if (cue.formatBadge === 'BLK') badgeStyle = 'bg-black text-gray-400 border border-gray-700';
+
+        let thumbHtml = '';
+        if (cue.type === 'blackout') {
+          thumbHtml = `<div class="w-16 h-9 rounded bg-black border border-gray-800 flex items-center justify-center text-[9px] font-mono text-gray-600 shrink-0">BLACK</div>`;
+        } else if (cue.thumb) {
+          thumbHtml = `<img src="${cue.thumb}" class="w-16 h-9 rounded object-cover bg-black border border-gray-800 shrink-0" />`;
+        } else {
+          thumbHtml = `<div class="w-16 h-9 rounded bg-gray-900 border border-gray-800 flex items-center justify-center text-[10px] font-mono text-gray-400 shrink-0">${cue.formatBadge}</div>`;
+        }
+
+        item.innerHTML = `
+          <div class="w-5 text-center font-mono text-xs ${isLive ? 'text-red-400 font-bold' : isNext ? 'text-emerald-400 font-semibold' : 'text-gray-500'}">
+            ${index + 1}
+          </div>
+          ${thumbHtml}
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-1.5">
+              <span class="text-[9px] font-mono px-1.5 py-0.2 rounded ${badgeStyle}">${cue.formatBadge}</span>
+              ${isLive ? '<span class="text-[9px] font-bold uppercase text-red-400">LIVE</span>' : ''}
+              ${isNext ? '<span class="text-[9px] font-bold uppercase text-emerald-400">NEXT</span>' : ''}
+            </div>
+            <div class="text-xs font-medium text-gray-100 truncate mt-0.5">${cue.title}</div>
+            <div class="text-[10px] text-gray-400 truncate">${cue.subtitle}</div>
+          </div>
+          <button class="delete-cue-btn opacity-0 group-hover:opacity-100 p-1.5 text-gray-500 hover:text-red-400 rounded transition" title="Удалить из плейлиста">
+            ✕
+          </button>
+        `;
+
+        item.addEventListener('click', (e) => {
+          if (e.target.closest('.delete-cue-btn')) {
+            e.stopPropagation();
+            removeCue(index);
+            return;
+          }
+          goToCue(index);
+        });
+
+        item.addEventListener('dragstart', (e) => {
+          state.draggedCueId = cue.id;
+          item.classList.add('dragging');
+          e.dataTransfer.effectAllowed = 'move';
+        });
+
+        item.addEventListener('dragend', () => {
+          state.draggedCueId = null;
+          item.classList.remove('dragging');
+          document.querySelectorAll('.cue-item').forEach(el => el.classList.remove('drag-target-top'));
+        });
+
+        item.addEventListener('dragover', (e) => {
+          e.preventDefault();
+          if (state.draggedCueId && state.draggedCueId !== cue.id) {
+            item.classList.add('drag-target-top');
+          }
+        });
+
+        item.addEventListener('dragleave', () => {
+          item.classList.remove('drag-target-top');
+        });
+
+        item.addEventListener('drop', (e) => {
+          e.preventDefault();
+          item.classList.remove('drag-target-top');
+          if (!state.draggedCueId || state.draggedCueId === cue.id) return;
+
+          const fromIdx = state.cues.findIndex(c => c.id === state.draggedCueId);
+          const toIdx = state.cues.findIndex(c => c.id === cue.id);
+          if (fromIdx === -1 || toIdx === -1) return;
+
+          const currentCueId = state.cues[state.currentIndex]?.id;
+          const [moved] = state.cues.splice(fromIdx, 1);
+          state.cues.splice(toIdx, 0, moved);
+
+          if (currentCueId) {
+            state.currentIndex = state.cues.findIndex(c => c.id === currentCueId);
+          }
+
+          renderPlaylist();
+          updateMonitors();
+          syncOutputWindow();
+        });
+
+        dom.cueListContainer.appendChild(item);
+      });
+
+      const activeEl = dom.cueListContainer.children[state.currentIndex];
+      if (activeEl) {
+        activeEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+    }
+
+    function removeCue(index) {
+      state.cues.splice(index, 1);
+      if (state.cues.length === 0) {
+        state.currentIndex = -1;
+      } else if (state.currentIndex >= state.cues.length) {
+        state.currentIndex = state.cues.length - 1;
+      }
+      renderPlaylist();
+      updateMonitors();
+      syncOutputWindow();
+    }
+
+    // ==========================================
+    // 8. PLAYBACK ENGINE (PGM / PVW / VIDEO / SYNC)
+    // ==========================================
+    function goToCue(index) {
+      if (index < 0 || index >= state.cues.length) return;
+      state.currentIndex = index;
+
+      if (!state.timerRunning && index > 0) {
+        startShowTimer();
+      }
+
+      renderPlaylist();
+      updateMonitors();
+      syncOutputWindow();
+    }
+
+    function nextCue() {
+      const currentCue = state.cues[state.currentIndex];
+      const clickerMode = dom.videoClickerMode.value;
+
+      if (currentCue && currentCue.type === 'video' && state.videoElementPgm) {
+        if (clickerMode === 'manual_start' && state.videoElementPgm.paused && state.videoElementPgm.currentTime < 0.2) {
+          playActiveVideo();
+          return;
+        }
+        if (clickerMode === 'autoplay_pause_next') {
+          if (!state.videoElementPgm.paused) {
+            pauseActiveVideo();
+            return;
+          }
+        }
+      }
+
+      if (state.currentIndex + 1 < state.cues.length) {
+        goToCue(state.currentIndex + 1);
+      }
+    }
+
+    function prevCue() {
+      if (state.currentIndex - 1 >= 0) {
+        goToCue(state.currentIndex - 1);
+      }
+    }
+
+    function toggleBlackout(forceState = null) {
+      state.isBlackout = forceState !== null ? forceState : !state.isBlackout;
+
+      if (state.isBlackout) {
+        dom.pgmBlackoutOverlay.classList.remove('hidden');
+        dom.localFullscreenBlackout.classList.remove('hidden');
+        dom.masterBlackoutBtn.classList.remove('bg-broadcast-card', 'text-gray-300', 'border-broadcast-border');
+        dom.masterBlackoutBtn.classList.add('bg-red-600', 'text-white', 'border-red-400', 'shadow-lg', 'shadow-red-600/30');
+      } else {
+        dom.pgmBlackoutOverlay.classList.add('hidden');
+        dom.localFullscreenBlackout.classList.add('hidden');
+        dom.masterBlackoutBtn.classList.add('bg-broadcast-card', 'text-gray-300', 'border-broadcast-border');
+        dom.masterBlackoutBtn.classList.remove('bg-red-600', 'text-white', 'border-red-400', 'shadow-lg', 'shadow-red-600/30');
+      }
+
+      syncOutputWindow();
+    }
+
+    function updateMonitors() {
+      const pgmCue = state.cues[state.currentIndex] || null;
+      const pvwCue = state.cues[state.currentIndex + 1] || null;
+
+      dom.pgmStageContent.innerHTML = '';
+      dom.localFullscreenStage.innerHTML = '';
+      state.videoElementPgm = null;
+      state.videoElementFs = null;
+
+      if (!pgmCue) {
+        dom.pgmCueIndex.textContent = 'CUE 0 / 0';
+        dom.pgmTitle.textContent = 'Нет активного слайда';
+        dom.pgmSubtitle.textContent = 'Загрузите файлы или запустите демо-набор';
+        dom.pgmTypeBadge.textContent = '—';
+        dom.videoControlBar.classList.add('hidden');
+        dom.pgmStageContent.innerHTML = `<div class="text-xs text-gray-600 font-mono">NO SIGNAL</div>`;
+      } else {
+        dom.pgmCueIndex.textContent = `CUE ${state.currentIndex + 1} / ${state.cues.length}`;
+        dom.pgmTitle.textContent = pgmCue.title;
+        dom.pgmSubtitle.textContent = pgmCue.subtitle;
+        dom.pgmTypeBadge.textContent = pgmCue.formatBadge;
+
+        if (pgmCue.type === 'blackout') {
+          dom.videoControlBar.classList.add('hidden');
+          dom.pgmStageContent.innerHTML = `<div class="text-xs text-gray-700 font-mono tracking-widest">BLACKOUT CUE</div>`;
+        } else if (pgmCue.type === 'image') {
+          dom.videoControlBar.classList.add('hidden');
+          const img = document.createElement('img');
+          img.src = pgmCue.src;
+          img.className = 'w-full h-full object-contain';
+          dom.pgmStageContent.appendChild(img);
+
+          const fsImg = img.cloneNode();
+          dom.localFullscreenStage.appendChild(fsImg);
+        } else if (pgmCue.type === 'video') {
+          dom.videoControlBar.classList.remove('hidden');
+          dom.vidLoopCheck.checked = !!pgmCue.loop;
+
+          const vid = document.createElement('video');
+          vid.src = pgmCue.src;
+          vid.className = 'w-full h-full object-contain';
+          vid.loop = !!pgmCue.loop;
+          vid.playsInline = true;
+
+          const outputOpen = state.outputWindow && !state.outputWindow.closed;
+          const muteOperator = outputOpen && dom.audioOutputMode.value === 'output_only';
+          vid.muted = muteOperator;
+          vid.volume = parseFloat(dom.vidVolumeSlider.value);
+
+          dom.pgmStageContent.appendChild(vid);
+          state.videoElementPgm = vid;
+
+          const fsVid = document.createElement('video');
+          fsVid.src = pgmCue.src;
+          fsVid.className = 'w-full h-full object-contain';
+          fsVid.loop = !!pgmCue.loop;
+          fsVid.muted = !state.isLocalFullscreen;
+          fsVid.volume = parseFloat(dom.vidVolumeSlider.value);
+          dom.localFullscreenStage.appendChild(fsVid);
+          state.videoElementFs = fsVid;
+
+          vid.addEventListener('loadedmetadata', () => {
+            dom.vidDurationTime.textContent = formatTime(vid.duration);
+          });
+
+          vid.addEventListener('timeupdate', () => {
+            if (!vid.duration) return;
+            const pct = (vid.currentTime / vid.duration) * 100;
+            dom.vidSeekSlider.value = pct;
+            dom.vidCurrentTime.textContent = formatTime(vid.currentTime);
+          });
+
+          vid.addEventListener('play', () => {
+            dom.vidPlayIcon.textContent = '⏸ Пауза';
+          });
+
+          vid.addEventListener('pause', () => {
+            dom.vidPlayIcon.textContent = '▶ Старт';
+          });
+
+          const mode = dom.videoClickerMode.value;
+          if (mode === 'autoplay_next' || mode === 'autoplay_pause_next') {
+            playActiveVideo();
+          } else {
+            dom.vidPlayIcon.textContent = '▶ Старт';
+          }
+        }
+      }
+
+      // UPDATE PVW (NEXT)
+      dom.pvwStageContent.innerHTML = '';
+      if (!pvwCue) {
+        dom.pvwCueIndex.textContent = 'END OF SHOW';
+        dom.pvwTitle.textContent = 'Конец плейлиста';
+        dom.pvwSubtitle.textContent = 'Следующий слайд отсутствует';
+        dom.pvwTypeBadge.textContent = 'END';
+        dom.pvwStageContent.innerHTML = `<div class="text-xs text-gray-600 font-mono">END OF PLAYLIST</div>`;
+      } else {
+        dom.pvwCueIndex.textContent = `NEXT: CUE ${state.currentIndex + 2}`;
+        dom.pvwTitle.textContent = pvwCue.title;
+        dom.pvwSubtitle.textContent = pvwCue.subtitle;
+        dom.pvwTypeBadge.textContent = pvwCue.formatBadge;
+
+        if (pvwCue.type === 'blackout') {
+          dom.pvwStageContent.innerHTML = `<div class="text-xs text-gray-600 font-mono">BLACKOUT CUE</div>`;
+        } else if (pvwCue.type === 'image') {
+          const img = document.createElement('img');
+          img.src = pvwCue.src;
+          img.className = 'w-full h-full object-contain';
+          dom.pvwStageContent.appendChild(img);
+        } else if (pvwCue.type === 'video') {
+          if (pvwCue.thumb) {
+            const img = document.createElement('img');
+            img.src = pvwCue.thumb;
+            img.className = 'w-full h-full object-contain';
+            dom.pvwStageContent.appendChild(img);
+          }
+          const badge = document.createElement('div');
+          badge.className = 'absolute bottom-2 right-2 bg-blue-600/90 text-white text-[10px] font-mono px-2 py-0.5 rounded';
+          badge.textContent = `▶ VIDEO (${formatTime(pvwCue.duration)})`;
+          dom.pvwStageContent.appendChild(badge);
+        }
+      }
+    }
+
+    function sendVideoActionToOutput(payload) {
+      if (state.outputWindow && !state.outputWindow.closed && typeof state.outputWindow.videoAction === 'function') {
+        state.outputWindow.videoAction(payload);
+      }
+    }
+
+    function playActiveVideo() {
+      if (state.videoElementPgm) {
+        state.videoElementPgm.play().catch(() => {});
+      }
+      if (state.videoElementFs && state.isLocalFullscreen) {
+        state.videoElementFs.currentTime = state.videoElementPgm ? state.videoElementPgm.currentTime : 0;
+        state.videoElementFs.play().catch(() => {});
+      }
+      sendVideoActionToOutput({ action: 'play', time: state.videoElementPgm?.currentTime || 0 });
+    }
+
+    function pauseActiveVideo() {
+      if (state.videoElementPgm) state.videoElementPgm.pause();
+      if (state.videoElementFs) state.videoElementFs.pause();
+      sendVideoActionToOutput({ action: 'pause', time: state.videoElementPgm?.currentTime || 0 });
+    }
+
+    // ==========================================
+    // 9. DUAL-SCREEN OUTPUT WINDOW (DIRECT OPENER SYNC)
+    // ==========================================
+    function openOutputWindow() {
+      if (state.outputWindow && !state.outputWindow.closed) {
+        state.outputWindow.focus();
+        syncOutputWindow();
+        return;
+      }
+
+      const win = window.open('', 'ShowDeckOutput', 'width=1280,height=720,menubar=no,toolbar=no,location=no,status=no');
+      if (!win) {
+        showBanner('Браузер заблокировал всплывающее окно вывода. Разрешите всплывающие окна для этого сайта.');
+        return;
+      }
+
+      state.outputWindow = win;
+
+      const outputHtml = `<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>ShowDeck Pro — LIVE OUTPUT</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #000000;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: sans-serif;
+    }
+    #stage {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    img, video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+    #blackout {
+      position: fixed;
+      inset: 0;
+      background: #000;
+      display: none;
+      z-index: 20;
+    }
+    .timer-alert-pulse {
+      will-change: transform, opacity;
+    }
+    #fsPrompt {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: rgba(20, 24, 32, 0.85);
+      color: #fff;
+      border: 1px solid rgba(255,255,255,0.2);
+      padding: 10px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      cursor: pointer;
+      z-index: 30;
+      transition: opacity 0.3s;
+    }
+  </style>
+</head>
+<body>
+  <div id="stage"></div>
+  <div id="outputOverlayTimer" style="display:none; position:fixed; z-index:15; transition: color 0.7s ease; cursor:move; user-select:none; font-family:'JetBrains Mono', monospace; font-weight:700; line-height:1; transform:translate(-50%, -50%); white-space:nowrap;"></div>
+  <div id="blackout"></div>
+  <button id="fsPrompt" onclick="document.documentElement.requestFullscreen(); this.style.display='none';">
+    ⛶ Развернуть вывод на весь экран (F11)
+  </button>
+
+  <script>
+    const stage = document.getElementById('stage');
+    const blackout = document.getElementById('blackout');
+    const ovTimerEl = document.getElementById('outputOverlayTimer');
+    let currentVideo = null;
+    let currentCueSrc = null;
+
+    window.updateOverlayTimer = function(ov) {
+      if (!ov || !ov.visible) {
+        ovTimerEl.style.display = 'none';
+        return;
+      }
+      ovTimerEl.style.display = 'block';
+      ovTimerEl.textContent = ov.displayText;
+      ovTimerEl.style.left = ov.xPct + '%';
+      ovTimerEl.style.top = ov.yPct + '%';
+      ovTimerEl.style.fontSize = ov.sizePct + 'vh';
+      ovTimerEl.style.color = ov.textColor;
+      ovTimerEl.style.backgroundColor = ov.bgRgba;
+
+      const scale = ov.breathScale || 1;
+      const opacity = ov.breathOpacity ?? 1;
+      ovTimerEl.style.transform = 'translate(-50%, -50%) scale(' + scale + ')';
+      ovTimerEl.style.opacity = opacity;
+
+      if (ov.isTransparent) {
+        ovTimerEl.style.padding = '0';
+        ovTimerEl.style.boxShadow = 'none';
+        ovTimerEl.style.textShadow = ov.isAlert
+          ? '0 0 ' + Math.round(18 * (ov.breathGlow || 0.3)) + 'px rgba(239, 68, 68, ' + (0.25 + 0.6 * (ov.breathGlow || 0)) + '), 0 2px 10px rgba(0,0,0,0.88)'
+          : '0 2px 12px rgba(0, 0, 0, 0.85), 0 0 3px rgba(0, 0, 0, 0.95)';
+      } else {
+        ovTimerEl.style.padding = (ov.sizePct * 0.22) + 'vh ' + (ov.sizePct * 0.42) + 'vh';
+        ovTimerEl.style.borderRadius = (ov.sizePct * 0.22) + 'vh';
+        ovTimerEl.style.textShadow = ov.isAlert
+          ? '0 0 ' + Math.round(14 * (ov.breathGlow || 0.3)) + 'px rgba(239, 68, 68, ' + (0.25 + 0.55 * (ov.breathGlow || 0)) + ')'
+          : 'none';
+        ovTimerEl.style.boxShadow = ov.isAlert
+          ? '0 6px 24px rgba(239, 68, 68, ' + (0.2 + 0.3 * (ov.breathGlow || 0)) + ')'
+          : '0 6px 24px rgba(0, 0, 0, 0.45)';
+      }
+    };
+
+    // Allow dragging the timer directly on the Output window as well
+    let isDraggingOut = false;
+    ovTimerEl.addEventListener('mousedown', (e) => {
+      isDraggingOut = true;
+      e.preventDefault();
+    });
+    window.addEventListener('mousemove', (e) => {
+      if (!isDraggingOut) return;
+      const xPct = Math.min(96, Math.max(4, (e.clientX / window.innerWidth) * 100));
+      const yPct = Math.min(96, Math.max(4, (e.clientY / window.innerHeight) * 100));
+      ovTimerEl.style.left = xPct + '%';
+      ovTimerEl.style.top = yPct + '%';
+      if (window.opener && typeof window.opener.setOverlayTimerPosition === 'function') {
+        window.opener.setOverlayTimerPosition(xPct, yPct);
+      }
+    });
+    window.addEventListener('mouseup', () => { isDraggingOut = false; });
+
+    window.renderState = function(msg) {
+      blackout.style.display = msg.isBlackout ? 'block' : 'none';
+      if (msg.overlayTimer) window.updateOverlayTimer(msg.overlayTimer);
+
+      if (!msg.cue || msg.cue.type === 'blackout') {
+        stage.innerHTML = '';
+        currentVideo = null;
+        currentCueSrc = null;
+        return;
+      }
+
+      const uniqueKey = msg.cue.id + '_' + (msg.cue.src ? msg.cue.src.slice(0, 64) : '');
+      if (currentCueSrc === uniqueKey) {
+        if (currentVideo) {
+          currentVideo.loop = !!msg.cue.loop;
+          currentVideo.volume = msg.volume ?? 1;
+          currentVideo.muted = !!msg.muteOutput;
+        }
+        return;
+      }
+
+      currentCueSrc = uniqueKey;
+      stage.innerHTML = '';
+      currentVideo = null;
+
+      if (msg.cue.type === 'image') {
+        const img = document.createElement('img');
+        img.src = msg.cue.fileObj ? URL.createObjectURL(msg.cue.fileObj) : msg.cue.src;
+        stage.appendChild(img);
+      } else if (msg.cue.type === 'video') {
+        const vid = document.createElement('video');
+        vid.src = msg.cue.fileObj ? URL.createObjectURL(msg.cue.fileObj) : msg.cue.src;
+        vid.loop = !!msg.cue.loop;
+        vid.volume = msg.volume ?? 1;
+        vid.muted = !!msg.muteOutput;
+        vid.playsInline = true;
+        stage.appendChild(vid);
+        currentVideo = vid;
+
+        if (msg.isPlaying) {
+          vid.currentTime = msg.currentTime || 0;
+          vid.play().catch(() => {});
+        }
+      }
+    };
+
+    window.videoAction = function(msg) {
+      if (!currentVideo) return;
+      if (typeof msg.time === 'number' && Math.abs(currentVideo.currentTime - msg.time) > 0.35) {
+        currentVideo.currentTime = msg.time;
+      }
+      if (msg.action === 'play') currentVideo.play().catch(() => {});
+      if (msg.action === 'pause') currentVideo.pause();
+      if (msg.action === 'volume') currentVideo.volume = msg.volume;
+      if (msg.action === 'loop') currentVideo.loop = msg.loop;
+    };
+
+    window.addEventListener('keydown', (e) => {
+      if (window.opener && typeof window.opener.processClickerKey === 'function') {
+        if (window.opener.processClickerKey(e.code, e.key)) {
+          e.preventDefault();
+        }
+      }
+    });
+  <\/script>
+</body>
+</html>`;
+
+      win.document.open();
+      win.document.write(outputHtml);
+      win.document.close();
+
+      dom.outputBtnLabel.textContent = 'Output подключён ✓';
+      dom.openOutputBtn.classList.replace('bg-emerald-600', 'bg-blue-600');
+
+      setTimeout(() => {
+        syncOutputWindow();
+        updateMonitors();
+      }, 60);
+
+      const checkClosed = setInterval(() => {
+        if (!state.outputWindow || state.outputWindow.closed) {
+          clearInterval(checkClosed);
+          state.outputWindow = null;
+          dom.outputBtnLabel.textContent = 'Экран вывода (Output)';
+          dom.openOutputBtn.classList.replace('bg-blue-600', 'bg-emerald-600');
+          updateMonitors();
+        }
+      }, 1000);
+    }
+
+    function syncOutputWindow() {
+      if (!state.outputWindow || state.outputWindow.closed) return;
+      if (typeof state.outputWindow.renderState !== 'function') return;
+
+      const cue = state.cues[state.currentIndex] || null;
+      const muteOutput = dom.audioOutputMode.value === 'operator_only';
+      const isPlaying = state.videoElementPgm ? !state.videoElementPgm.paused : false;
+      const currentTime = state.videoElementPgm ? state.videoElementPgm.currentTime : 0;
+
+      state.outputWindow.renderState({
+        cue,
+        isBlackout: state.isBlackout,
+        volume: parseFloat(dom.vidVolumeSlider.value),
+        muteOutput,
+        isPlaying,
+        currentTime,
+        overlayTimer: getOverlayTimerRenderPayload()
+      });
+    }
+
+    // ==========================================
+    // 10. USB CLICKER & KEYBOARD INTERCEPTION
+    // ==========================================
+    function flashClickerIndicator(label) {
+      dom.clickerLastKey.textContent = label;
+      dom.clickerBadge.classList.add('border-blue-500', 'bg-blue-500/20');
+      dom.clickerDot.classList.replace('bg-emerald-500', 'bg-blue-400');
+
+      clearTimeout(window._clickerFlashTimeout);
+      window._clickerFlashTimeout = setTimeout(() => {
+        dom.clickerBadge.classList.remove('border-blue-500', 'bg-blue-500/20');
+        dom.clickerDot.classList.replace('bg-blue-400', 'bg-emerald-500');
+      }, 450);
+    }
+
+    window.processClickerKey = function(code, key) {
+      if (['ArrowRight', 'PageDown', 'ArrowDown', 'Space'].includes(code)) {
+        flashClickerIndicator(`NEXT (${code})`);
+        nextCue();
+        return true;
+      }
+
+      if (['ArrowLeft', 'PageUp', 'ArrowUp'].includes(code)) {
+        flashClickerIndicator(`PREV (${code})`);
+        prevCue();
+        return true;
+      }
+
+      if (code === 'KeyB' || code === 'Period' || key === '.' || key === 'b' || key === 'B') {
+        flashClickerIndicator('BLACKOUT [B]');
+        toggleBlackout();
+        return true;
+      }
+
+      if (code === 'F5') {
+        flashClickerIndicator('START SHOW [F5]');
+        enterLocalFullscreen();
+        return true;
+      }
+
+      if (code === 'Escape') {
+        if (!dom.fontModal.classList.contains('hidden')) {
+          dom.fontModal.classList.add('hidden');
+          return true;
+        }
+        if (state.isLocalFullscreen) {
+          flashClickerIndicator('EXIT FS [ESC]');
+          exitLocalFullscreen();
+          return true;
+        }
+      }
+
+      if (code === 'KeyP' || code === 'Enter') {
+        const currentCue = state.cues[state.currentIndex];
+        if (currentCue && currentCue.type === 'video' && state.videoElementPgm) {
+          flashClickerIndicator('PLAY/PAUSE');
+          if (state.videoElementPgm.paused) playActiveVideo();
+          else pauseActiveVideo();
+          return true;
+        }
+      }
+
+      return false;
+    };
+
+    window.addEventListener('keydown', (e) => {
+      if (['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName) && document.activeElement.type !== 'range') {
+        return;
+      }
+
+      const handled = window.processClickerKey(e.code, e.key);
+      if (handled) {
+        e.preventDefault();
+      }
+    });
+
+    // ==========================================
+    // 11. LOCAL FULLSCREEN MODE
+    // ==========================================
+    function enterLocalFullscreen() {
+      state.isLocalFullscreen = true;
+      dom.localFullscreenOverlay.classList.remove('hidden');
+      if (document.documentElement.requestFullscreen) {
+        document.documentElement.requestFullscreen().catch(() => {});
+      }
+      updateMonitors();
+    }
+
+    function exitLocalFullscreen() {
+      state.isLocalFullscreen = false;
+      dom.localFullscreenOverlay.classList.add('hidden');
+      if (document.fullscreenElement && document.exitFullscreen) {
+        document.exitFullscreen().catch(() => {});
+      }
+      updateMonitors();
+    }
+
+    document.addEventListener('fullscreenchange', () => {
+      if (!document.fullscreenElement && state.isLocalFullscreen) {
+        state.isLocalFullscreen = false;
+        dom.localFullscreenOverlay.classList.add('hidden');
+        updateMonitors();
+      }
+    });
+
+    // ==========================================
+    // 12. TIMERS & UI EVENT LISTENERS
+    // ==========================================
+    function startShowTimer() {
+      if (state.timerRunning) return;
+      state.timerRunning = true;
+      state.timerInterval = setInterval(() => {
+        state.timerSeconds++;
+        dom.showTimer.textContent = formatHMS(state.timerSeconds);
+      }, 1000);
+    }
+
+    function pauseShowTimer() {
+      state.timerRunning = false;
+      clearInterval(state.timerInterval);
+    }
+
+    setInterval(() => {
+      const now = new Date();
+      dom.wallClock.textContent = now.toTimeString().split(' ')[0];
+    }, 1000);
+
+    // Media & Font Input Listeners
+    dom.fileInput.addEventListener('change', (e) => {
+      handleFiles(e.target.files);
+      e.target.value = '';
+    });
+
+    dom.fontFileInput.addEventListener('change', (e) => {
+      handleFontFiles(e.target.files);
+      e.target.value = '';
+    });
+
+    // Font Modal Open/Close & Drag-Drop
+    dom.openFontModalBtn.addEventListener('click', () => {
+      updateFontManagerUI();
+      dom.fontModal.classList.remove('hidden');
+    });
+
+    dom.toastFontActionBtn.addEventListener('click', () => {
+      updateFontManagerUI();
+      dom.fontModal.classList.remove('hidden');
+    });
+
+    dom.closeFontModalBtn.addEventListener('click', () => dom.fontModal.classList.add('hidden'));
+    dom.closeFontModalBtn2.addEventListener('click', () => dom.fontModal.classList.add('hidden'));
+    dom.rerenderPptxBtn.addEventListener('click', rerenderAllPptxDecks);
+    document.getElementById('autoFetchGoogleFontsBtn').addEventListener('click', autoFetchAllMissingGoogleFonts);
+
+    ['dragenter', 'dragover'].forEach(evtName => {
+      dom.fontDropArea.addEventListener(evtName, (e) => {
+        e.preventDefault();
+        dom.fontDropArea.classList.add('border-blue-500', 'bg-blue-500/10');
+      });
+    });
+
+    ['dragleave', 'drop'].forEach(evtName => {
+      dom.fontDropArea.addEventListener(evtName, (e) => {
+        e.preventDefault();
+        dom.fontDropArea.classList.remove('border-blue-500', 'bg-blue-500/10');
+      });
+    });
+
+    dom.fontDropArea.addEventListener('drop', (e) => {
+      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        handleFontFiles(e.dataTransfer.files);
+      }
+    });
+
+    // Global Drag & Drop on Aside Dropzone (supports both Media and Font files!)
+    ['dragenter', 'dragover'].forEach(evtName => {
+      dom.dropZone.addEventListener(evtName, (e) => {
+        if (e.dataTransfer.types.includes('Files')) {
+          e.preventDefault();
+          dom.dropZone.classList.add('drag-over-zone');
+        }
+      });
+    });
+
+    ['dragleave', 'drop'].forEach(evtName => {
+      dom.dropZone.addEventListener(evtName, (e) => {
+        if (e.dataTransfer.types.includes('Files')) {
+          e.preventDefault();
+          dom.dropZone.classList.remove('drag-over-zone');
+        }
+      });
+    });
+
+    dom.dropZone.addEventListener('drop', (e) => {
+      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        handleFiles(e.dataTransfer.files);
+      }
+    });
+
+    document.getElementById('addBlackoutBtn').addEventListener('click', () => addBlackoutCue(true));
+    document.getElementById('loadDemoBtn').addEventListener('click', loadDemoDeck);
+    document.getElementById('clearListBtn').addEventListener('click', () => {
+      state.cues = [];
+      state.pptxDecks = [];
+      state.currentIndex = -1;
+      renderPlaylist();
+      updateFontManagerUI();
+      updateMonitors();
+      syncOutputWindow();
+    });
+
+    dom.prevCueBtn.addEventListener('click', prevCue);
+    dom.nextCueBtn.addEventListener('click', nextCue);
+    dom.masterBlackoutBtn.addEventListener('click', () => toggleBlackout());
+    dom.openOutputBtn.addEventListener('click', openOutputWindow);
+    dom.fullscreenPgmBtn.addEventListener('click', enterLocalFullscreen);
+    dom.exitLocalFullscreenBtn.addEventListener('click', exitLocalFullscreen);
+
+    dom.vidPlayPauseBtn.addEventListener('click', () => {
+      if (!state.videoElementPgm) return;
+      if (state.videoElementPgm.paused) playActiveVideo();
+      else pauseActiveVideo();
+    });
+
+    dom.vidRestartBtn.addEventListener('click', () => {
+      if (!state.videoElementPgm) return;
+      state.videoElementPgm.currentTime = 0;
+      if (state.videoElementFs) state.videoElementFs.currentTime = 0;
+      sendVideoActionToOutput({ action: 'play', time: 0 });
+      playActiveVideo();
+    });
+
+    dom.vidSeekSlider.addEventListener('input', (e) => {
+      if (!state.videoElementPgm || !state.videoElementPgm.duration) return;
+      const newTime = (parseFloat(e.target.value) / 100) * state.videoElementPgm.duration;
+      state.videoElementPgm.currentTime = newTime;
+      if (state.videoElementFs) state.videoElementFs.currentTime = newTime;
+      sendVideoActionToOutput({
+        action: state.videoElementPgm.paused ? 'pause' : 'play',
+        time: newTime
+      });
+    });
+
+    dom.vidLoopCheck.addEventListener('change', (e) => {
+      const cue = state.cues[state.currentIndex];
+      if (cue) cue.loop = e.target.checked;
+      if (state.videoElementPgm) state.videoElementPgm.loop = e.target.checked;
+      if (state.videoElementFs) state.videoElementFs.loop = e.target.checked;
+      sendVideoActionToOutput({ action: 'loop', loop: e.target.checked });
+    });
+
+    dom.vidVolumeSlider.addEventListener('input', (e) => {
+      const vol = parseFloat(e.target.value);
+      if (state.videoElementPgm) state.videoElementPgm.volume = vol;
+      if (state.videoElementFs) state.videoElementFs.volume = vol;
+      sendVideoActionToOutput({ action: 'volume', volume: vol });
+    });
+
+    dom.audioOutputMode.addEventListener('change', () => {
+      updateMonitors();
+      syncOutputWindow();
+    });
+
+    dom.timerToggleBtn.addEventListener('click', () => {
+      if (state.timerRunning) pauseShowTimer();
+      else startShowTimer();
+    });
+
+    dom.timerResetBtn.addEventListener('click', () => {
+      pauseShowTimer();
+      state.timerSeconds = 0;
+      dom.showTimer.textContent = '00:00:00';
+    });
+
+
+    // ==========================================
+    // 13. STAGE OVERLAY TIMER ENGINE (DRAG, STYLE, SYNC)
+    // ==========================================
+    function formatOverlayTimerText() {
+      const ov = state.overlayTimer;
+      if (ov.mode === 'clock') {
+        const now = new Date();
+        const hh = String(now.getHours()).padStart(2, '0');
+        const mm = String(now.getMinutes()).padStart(2, '0');
+        const ss = String(now.getSeconds()).padStart(2, '0');
+        const ds = Math.floor(now.getMilliseconds() / 100);
+        if (ov.format === 'ss_only') return `${mm}:${ss}`;
+        if (ov.format === 'mm_ss_ms') return `${hh}:${mm}:${ss}.${ds}`;
+        return `${hh}:${mm}:${ss}`;
+      }
+
+      const raw = Math.max(0, ov.currentSeconds);
+      const wholeSec = ov.mode === 'countdown' ? Math.ceil(raw - 0.001) : Math.floor(raw);
+      const total = Math.max(0, wholeSec);
+      const h = Math.floor(total / 3600);
+      const m = Math.floor((total % 3600) / 60);
+      const s = total % 60;
+
+      if (ov.format === 'ss_only') {
+        return `${total}`;
+      }
+      if (ov.format === 'mm_ss_ms') {
+        const floorSec = Math.floor(raw);
+        const tenths = Math.floor((raw - floorSec) * 10);
+        const mm = Math.floor(floorSec / 60);
+        const ss = floorSec % 60;
+        return `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}.${tenths}`;
+      }
+      if (ov.format === 'hh_mm_ss' || h > 0) {
+        return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+      }
+      // Default 'mm_ss': minutes and seconds (e.g. 05:00, 12:34, 75:00)
+      const totalMins = Math.floor(total / 60);
+      return `${String(totalMins).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    }
+
+    function getOverlayTimerRenderPayload() {
+      const ov = state.overlayTimer;
+      const isAlert = ov.mode === 'countdown' && ov.initialSeconds > 0 && ov.currentSeconds <= 10 && (ov.running || ov.currentSeconds === 0);
+
+      // Beat-locked smooth breathing: 1 cycle per second, peaking cleanly right on each second change
+      let breathScale = 1;
+      let breathOpacity = 1;
+      let breathGlow = 0;
+
+      if (isAlert && ov.running && ov.currentSeconds > 0) {
+        // frac goes from 1.0 down to 0.0 within each second
+        const frac = ov.currentSeconds - Math.floor(ov.currentSeconds);
+        // Smooth cosine wave: 1.0 at exact second tick (frac=1 or 0), 0.0 at half-second (frac=0.5)
+        const wave = 0.5 + 0.5 * Math.cos((1 - frac) * 2 * Math.PI);
+        breathScale = +(1 + 0.03 * wave).toFixed(4);
+        breathOpacity = +(0.78 + 0.22 * wave).toFixed(3);
+        breathGlow = +wave.toFixed(3);
+      } else if (isAlert && ov.currentSeconds === 0) {
+        // Gentle slow breathing on 00:00 synced to wall-clock second
+        const secFrac = (performance.now() % 1000) / 1000;
+        const wave = 0.5 + 0.5 * Math.cos(secFrac * 2 * Math.PI);
+        breathScale = +(1 + 0.025 * wave).toFixed(4);
+        breathOpacity = +(0.8 + 0.2 * wave).toFixed(3);
+        breathGlow = +wave.toFixed(3);
+      }
+
+      return {
+        visible: ov.visible,
+        displayText: formatOverlayTimerText(),
+        xPct: ov.xPct,
+        yPct: ov.yPct,
+        sizePct: ov.sizePct,
+        textColor: isAlert ? '#ef4444' : ov.textColor,
+        bgRgba: hexToRgba(ov.bgColor, ov.bgAlpha),
+        isTransparent: ov.bgAlpha <= 0.01,
+        isAlert,
+        breathScale,
+        breathOpacity,
+        breathGlow
+      };
+    }
+
+    function renderOverlayTimer() {
+      const payload = getOverlayTimerRenderPayload();
+
+      if (payload.visible) {
+        dom.overlayTimerActiveDot.classList.remove('hidden');
+        dom.pgmOverlayTimerBox.classList.remove('hidden');
+        dom.fsOverlayTimerBox.classList.remove('hidden');
+      } else {
+        dom.overlayTimerActiveDot.classList.add('hidden');
+        dom.pgmOverlayTimerBox.classList.add('hidden');
+        dom.fsOverlayTimerBox.classList.add('hidden');
+      }
+
+      const isTransparent = state.overlayTimer.bgAlpha <= 0.01;
+      const digitShadow = payload.isAlert
+        ? `0 0 ${Math.round(16 * payload.breathGlow)}px rgba(239, 68, 68, ${(0.25 + 0.6 * payload.breathGlow).toFixed(2)}), 0 2px 8px rgba(0,0,0,0.88)`
+        : (isTransparent ? '0 2px 10px rgba(0,0,0,0.85), 0 0 2px rgba(0,0,0,0.95)' : 'none');
+
+      const transformStr = `translate(-50%, -50%) scale(${payload.breathScale})`;
+
+      // Apply proportional styles to PGM Stage Preview box
+      const pgmH = dom.pgmStageWrapper.clientHeight || 240;
+      const pgmFontPx = Math.max(11, (payload.sizePct / 100) * pgmH);
+      dom.pgmOverlayTimerText.textContent = payload.displayText;
+      dom.pgmOverlayTimerBox.style.left = `${payload.xPct}%`;
+      dom.pgmOverlayTimerBox.style.top = `${payload.yPct}%`;
+      dom.pgmOverlayTimerBox.style.transform = transformStr;
+      dom.pgmOverlayTimerBox.style.opacity = payload.breathOpacity;
+      dom.pgmOverlayTimerBox.style.fontSize = `${pgmFontPx}px`;
+      dom.pgmOverlayTimerBox.style.color = payload.textColor;
+      dom.pgmOverlayTimerBox.style.backgroundColor = payload.bgRgba;
+      dom.pgmOverlayTimerBox.style.textShadow = digitShadow;
+      dom.pgmOverlayTimerBox.style.padding = isTransparent ? '2px 4px' : `${pgmFontPx * 0.22}px ${pgmFontPx * 0.42}px`;
+      dom.pgmOverlayTimerBox.style.borderRadius = `${pgmFontPx * 0.22}px`;
+
+      // Apply styles to Local Fullscreen Overlay
+      dom.fsOverlayTimerText.textContent = payload.displayText;
+      dom.fsOverlayTimerBox.style.left = `${payload.xPct}%`;
+      dom.fsOverlayTimerBox.style.top = `${payload.yPct}%`;
+      dom.fsOverlayTimerBox.style.transform = transformStr;
+      dom.fsOverlayTimerBox.style.opacity = payload.breathOpacity;
+      dom.fsOverlayTimerBox.style.fontSize = `${payload.sizePct}vh`;
+      dom.fsOverlayTimerBox.style.color = payload.textColor;
+      dom.fsOverlayTimerBox.style.backgroundColor = payload.bgRgba;
+      dom.fsOverlayTimerBox.style.textShadow = digitShadow;
+      dom.fsOverlayTimerBox.style.padding = isTransparent ? '0' : `${payload.sizePct * 0.22}vh ${payload.sizePct * 0.42}vh`;
+      dom.fsOverlayTimerBox.style.borderRadius = `${payload.sizePct * 0.22}vh`;
+
+      // Sync to Output Window
+      if (state.outputWindow && !state.outputWindow.closed && typeof state.outputWindow.updateOverlayTimer === 'function') {
+        state.outputWindow.updateOverlayTimer(payload);
+      }
+    }
+
+    window.setOverlayTimerPosition = function(xPct, yPct) {
+      state.overlayTimer.xPct = Math.round(xPct * 10) / 10;
+      state.overlayTimer.yPct = Math.round(yPct * 10) / 10;
+      renderOverlayTimer();
+    };
+
+    function startOverlayTimer() {
+      const ov = state.overlayTimer;
+      if (ov.running) return;
+      ov.running = true;
+      ov.lastTickTs = performance.now();
+      dom.ovPlayPauseBtn.textContent = '⏸ Пауза';
+
+      ov.intervalId = setInterval(() => {
+        const now = performance.now();
+        const dt = (now - ov.lastTickTs) / 1000;
+        ov.lastTickTs = now;
+
+        if (ov.mode === 'countdown') {
+          if (ov.currentSeconds > 0) {
+            ov.currentSeconds = Math.max(0, ov.currentSeconds - dt);
+            if (ov.currentSeconds === 0) {
+              pauseOverlayTimer();
+            }
+          } else {
+            pauseOverlayTimer();
+          }
+        } else if (ov.mode === 'countup') {
+          ov.currentSeconds += dt;
+        }
+        renderOverlayTimer();
+      }, 33);
+    }
+
+    function pauseOverlayTimer() {
+      const ov = state.overlayTimer;
+      ov.running = false;
+      clearInterval(ov.intervalId);
+      dom.ovPlayPauseBtn.textContent = '▶ Старт';
+      renderOverlayTimer();
+    }
+
+    function resetOverlayTimer() {
+      pauseOverlayTimer();
+      const ov = state.overlayTimer;
+      if (ov.mode === 'countdown') {
+        const mins = Math.max(0, parseInt(dom.ovMinInput.value || '0', 10));
+        const secs = Math.min(59, Math.max(0, parseInt(dom.ovSecInput.value || '0', 10)));
+        ov.initialSeconds = mins * 60 + secs;
+        ov.currentSeconds = ov.initialSeconds;
+      } else {
+        ov.currentSeconds = 0;
+      }
+      renderOverlayTimer();
+    }
+
+    // Drag & Drop positioning directly inside PGM monitor
+    let isDraggingPgmTimer = false;
+    dom.pgmOverlayTimerBox.addEventListener('mousedown', (e) => {
+      isDraggingPgmTimer = true;
+      e.preventDefault();
+      e.stopPropagation();
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!isDraggingPgmTimer) return;
+      const rect = dom.pgmStageWrapper.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      const xPct = Math.min(96, Math.max(4, ((e.clientX - rect.left) / rect.width) * 100));
+      const yPct = Math.min(96, Math.max(4, ((e.clientY - rect.top) / rect.height) * 100));
+      window.setOverlayTimerPosition(xPct, yPct);
+    });
+
+    window.addEventListener('mouseup', () => {
+      isDraggingPgmTimer = false;
+    });
+
+    // ResizeObserver so PGM preview timer scales proportionally when window resizes
+    if (window.ResizeObserver) {
+      new ResizeObserver(() => renderOverlayTimer()).observe(dom.pgmStageWrapper);
+    }
+
+    // UI Controls for Overlay Timer
+    dom.toggleOverlayTimerDrawerBtn.addEventListener('click', () => {
+      dom.overlayTimerPanel.classList.toggle('hidden');
+      renderOverlayTimer();
+    });
+
+    dom.ovTimerVisibleCheck.addEventListener('change', (e) => {
+      state.overlayTimer.visible = e.target.checked;
+      renderOverlayTimer();
+    });
+
+    dom.ovTimerModeSelect.addEventListener('change', (e) => {
+      state.overlayTimer.mode = e.target.value;
+      if (e.target.value === 'countdown') {
+        dom.ovCountdownInputs.classList.remove('hidden');
+      } else {
+        dom.ovCountdownInputs.classList.add('hidden');
+      }
+      resetOverlayTimer();
+    });
+
+    dom.ovApplyTimeBtn.addEventListener('click', resetOverlayTimer);
+    dom.ovMinInput.addEventListener('change', resetOverlayTimer);
+    dom.ovSecInput.addEventListener('change', resetOverlayTimer);
+
+    dom.ovPlayPauseBtn.addEventListener('click', () => {
+      if (state.overlayTimer.running) pauseOverlayTimer();
+      else startOverlayTimer();
+    });
+
+    dom.ovResetBtn.addEventListener('click', resetOverlayTimer);
+
+    dom.ovSizeSlider.addEventListener('input', (e) => {
+      state.overlayTimer.sizePct = parseFloat(e.target.value);
+      dom.ovSizeVal.textContent = `${state.overlayTimer.sizePct}%`;
+      renderOverlayTimer();
+    });
+
+    dom.ovTextColorInput.addEventListener('input', (e) => {
+      state.overlayTimer.textColor = e.target.value;
+      renderOverlayTimer();
+    });
+
+    dom.ovBgColorInput.addEventListener('input', (e) => {
+      state.overlayTimer.bgColor = e.target.value;
+      renderOverlayTimer();
+    });
+
+    function syncTransparentBtnUI() {
+      const btn = document.getElementById('ovTransparentBgBtn');
+      if (!btn) return;
+      const isTrans = state.overlayTimer.bgAlpha <= 0.01;
+      if (isTrans) {
+        btn.textContent = 'Фон: Прозрачный';
+        btn.className = 'px-2 py-1 rounded border text-[11px] font-medium transition bg-amber-500/20 border-amber-500/60 text-amber-200';
+      } else {
+        btn.textContent = 'Фон: Подложка';
+        btn.className = 'px-2 py-1 rounded border text-[11px] font-medium transition bg-broadcast-bg border-gray-700 text-gray-300 hover:border-gray-500';
+      }
+    }
+
+    document.getElementById('ovTransparentBgBtn').addEventListener('click', () => {
+      if (state.overlayTimer.bgAlpha > 0.01) {
+        state.overlayTimer._prevAlpha = state.overlayTimer.bgAlpha;
+        state.overlayTimer.bgAlpha = 0;
+      } else {
+        state.overlayTimer.bgAlpha = state.overlayTimer._prevAlpha || 0.65;
+      }
+      dom.ovBgAlphaSlider.value = state.overlayTimer.bgAlpha;
+      syncTransparentBtnUI();
+      renderOverlayTimer();
+    });
+
+    dom.ovBgAlphaSlider.addEventListener('input', (e) => {
+      state.overlayTimer.bgAlpha = parseFloat(e.target.value);
+      syncTransparentBtnUI();
+      renderOverlayTimer();
+    });
+
+    dom.ovFormatSelect.addEventListener('change', (e) => {
+      state.overlayTimer.format = e.target.value;
+      renderOverlayTimer();
+    });
+
+    dom.ovCenterPosBtn.addEventListener('click', () => {
+      window.setOverlayTimerPosition(50, 50);
+    });
+
+    // Update clock mode and 00:00 breathing smoothly
+    setInterval(() => {
+      const ov = state.overlayTimer;
+      if (!ov.visible) return;
+      if (ov.mode === 'clock' || (!ov.running && ov.mode === 'countdown' && ov.initialSeconds > 0 && ov.currentSeconds === 0)) {
+        renderOverlayTimer();
+      }
+    }, 50);
+
+    window.addEventListener('DOMContentLoaded', () => {
+      loadDemoDeck();
+    });
+  </script>
+</body>
+</html>
