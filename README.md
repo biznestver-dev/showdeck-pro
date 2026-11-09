@@ -2,6 +2,8 @@
 
 ShowDeck Pro packaged as a desktop app for macOS and Windows. The desktop build bundles PDF.js, JSZip, Tailwind CSS, and the Inter and JetBrains Mono fonts so the player UI and supported document formats work without loading those assets from a CDN.
 
+The mouse cursor hides after 1.2 seconds without movement in fullscreen playback and appears again when moved.
+
 ## Run locally
 
 Requires Node.js 24 or newer.
