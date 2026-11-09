@@ -1,29 +1,58 @@
 # ShowDeck Pro Desktop
 
-ShowDeck Pro packaged as a desktop app for macOS and Windows. The desktop build bundles PDF.js, JSZip, Tailwind CSS, and the Inter and JetBrains Mono fonts so the player UI and supported document formats work without loading those assets from a CDN.
+Единый десктопный плеер презентаций и медиафайлов для мероприятий, конференций и сценических площадок. Поддерживает воспроизведение **PDF**, **PPTX**, видеофайлов (**MP4**, **MOV**, **WEBM**, **MKV**), управление USB-кликерами и синхронизированный двухэкранный вывод (**Output**). Все библиотеки (`PDF.js`, `JSZip`, `Tailwind CSS`) и шрифты (`Inter`, `JetBrains Mono`) встроены в сборку для полностью автономной работы без интернета и CDN.
 
-The mouse cursor hides after 1.2 seconds without movement in fullscreen playback and appears again when moved.
+[![Скачать последний релиз](https://img.shields.io/github/v/release/biznestver-dev/showdeck-pro?label=%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C%20ShowDeck%20Pro&style=for-the-badge&color=2ea44f)](https://github.com/biznestver-dev/showdeck-pro/releases/latest)
 
-## Run locally
+---
 
-Requires Node.js 24 or newer.
+## Основные возможности
 
+- **Автономная работа без CDN:** все зависимости и шрифты упакованы внутрь приложения.
+- **Единый плейлист:** добавление PDF-документов, презентаций PPTX, видеороликов и пользовательских шрифтов (`.ttf`, `.otf`) перетаскиванием в окно программы.
+- **Двухэкранный вывод (Output):** отдельное окно вывода для проектора или LED-экрана с синхронизацией переключения слайдов и роликов.
+- **Автоскрытие курсора:** курсор мыши автоматически скрывается через **1.2 секунды** бездействия при полноэкранном воспроизведении и снова появляется при движении.
+- **Гибкое управление видео и звуком:** настройка поведения видео по кликеру и маршрутизации звука между окнами.
+
+---
+
+## Скачивание и установка
+
+Актуальные установщики для macOS и Windows доступны на странице [**Releases**](https://github.com/biznestver-dev/showdeck-pro/releases/latest).
+
+### macOS (Apple Silicon M1–M4 / Intel)
+
+1. Перейдите в раздел [**Releases**](https://github.com/biznestver-dev/showdeck-pro/releases/latest) и скачайте `.dmg` из блока **Assets**:
+   - `ShowDeck.Pro-1.0.0-arm64.dmg` — для Mac на чипах **Apple Silicon (M1, M2, M3, M4)**;
+   - `ShowDeck.Pro-1.0.0-x64.dmg` — для Mac на процессорах **Intel**.
+2. Откройте скачанный образ `.dmg` и перетащите иконку **ShowDeck Pro** в папку **Программы (Applications)**.
+3. **Первый запуск:** поскольку сборка не подписана платным сертификатом Apple Developer ID, macOS при первом открытии может показать предупреждение *«Приложение повреждено, и его не удается открыть»*. Чтобы разрешить запуск, откройте **Терминал** (`Cmd + Пробел` → `Terminal`) и выполните команду:
+   ```bash
+   xattr -cr "/Applications/ShowDeck Pro.app" && codesign --force --deep --sign - "/Applications/ShowDeck Pro.app"
+   ```
+4. Запустите **ShowDeck Pro** из папки **Программы (Applications)**.
+
+### Windows
+
+1. Перейдите в раздел [**Releases**](https://github.com/biznestver-dev/showdeck-pro/releases/latest) и скачайте файл `ShowDeck.Pro-Setup-1.0.0-x64.exe` из блока **Assets**.
+2. Запустите установщик (если Windows SmartScreen покажет предупреждение о неизвестном издателе, нажмите **Подробнее** → **Выполнить в любом случае**).
+
+---
+
+## Сборка из исходников (для разработчиков)
+
+Требуется **Node.js 24** или новее.
+
+### Локальный запуск
 ```sh
 npm ci
 npm start
 ```
 
-## Build installers
-
-Build for the current host platform:
-
+### Сборка установщиков
 ```sh
 npm run dist:mac
 npm run dist:win
 ```
 
-Installers are written to `release/`. macOS builds target both Intel and Apple Silicon. Windows installers should be built on Windows, and macOS disk images should be built on macOS.
-
-GitHub Actions builds both installers on pushes and pull requests to `main`. To attach them to a GitHub Release, push a version tag such as `v1.0.0`.
-
-The installers are not code-signed or notarized. macOS Gatekeeper and Windows SmartScreen may show a warning when installing them.
+Готовые установщики записываются в папку `release/`. Сборка macOS поддерживает архитектуры Intel и Apple Silicon (выполнять на macOS), сборка Windows выполняется на Windows. GitHub Actions автоматически собирает оба установщика при пуше в `main` и прикрепляет их к релизу при публикации тега версии (например, `v1.0.1`).
