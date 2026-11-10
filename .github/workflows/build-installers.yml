@@ -64,10 +64,14 @@ jobs:
         run: |
           $archive = Join-Path $env:RUNNER_TEMP 'vlc-3.0.24-win64.zip'
           $extract = Join-Path $env:RUNNER_TEMP 'vlc-win64'
-          Invoke-WebRequest `
-            -Uri 'https://get.videolan.org/vlc/3.0.24/win64/vlc-3.0.24-win64.zip' `
-            -OutFile $archive
+          curl.exe --fail --location --silent --show-error `
+            --output $archive `
+            'https://get.videolan.org/vlc/3.0.24/win64/vlc-3.0.24-win64.zip'
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Unable to download the VLC archive.'
+          }
           $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Host "Downloaded VLC archive SHA-256: $hash"
           if ($hash -ne 'fcf30850371ad10c9373cc4f0f4501e7dee49e3e9ae9f20c72fb2661a1ca6323') {
             throw 'VLC archive SHA-256 verification failed.'
           }

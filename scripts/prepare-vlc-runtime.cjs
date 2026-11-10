@@ -79,18 +79,10 @@ async function validateMacArchitectures() {
     throw new Error(`Unsupported VLC_ARCH value: ${requestedArch}. Use arm64, x64, or universal.`);
   }
 
-  const pending = [path.join(outputDirectory, 'lib'), path.join(outputDirectory, 'plugins')];
-  const libraries = [];
-  while (pending.length > 0) {
-    const directory = pending.pop();
-    for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
-      const entryPath = path.join(directory, entry.name);
-      if (entry.isDirectory()) pending.push(entryPath);
-      else if (entry.isFile() && entry.name.endsWith('.dylib')) libraries.push(entryPath);
-    }
-  }
-
-  for (const library of libraries) {
+  // VLC ships CPU-specific optional plugins alongside the universal core libraries.
+  const coreLibraries = ['libvlc.dylib', 'libvlccore.dylib']
+    .map(name => path.join(outputDirectory, 'lib', name));
+  for (const library of coreLibraries) {
     const architectures = execFileSync('lipo', ['-archs', library], { encoding: 'utf8' }).trim().split(/\s+/);
     const missing = requiredArchitectures.filter(architecture => !architectures.includes(architecture));
     if (missing.length > 0) {
