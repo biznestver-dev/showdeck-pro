@@ -72,6 +72,7 @@ class LibVlcOutput {
       instanceNew: fn('void * libvlc_new(int argc, void *argv)'),
       mediaNewPath: fn('void * libvlc_media_new_path(void *instance, const char *path)'),
       mediaNewLocation: fn('void * libvlc_media_new_location(void *instance, const char *location)'),
+      mediaAddOption: fn('void libvlc_media_add_option(void *media, const char *option)'),
       mediaRelease: fn('void libvlc_media_release(void *media)'),
       playerNewFromMedia: fn('void * libvlc_media_player_new_from_media(void *media)'),
       playerRelease: fn('void libvlc_media_player_release(void *player)'),
@@ -86,6 +87,8 @@ class LibVlcOutput {
       playerStop: fn('void libvlc_media_player_stop(void *player)'),
       playerSetTime: fn('void libvlc_media_player_set_time(void *player, int64_t time)'),
       playerGetState: fn('int libvlc_media_player_get_state(void *player)'),
+      playerGetPosition: fn('float libvlc_media_player_get_position(void *player)'),
+      playerGetLength: fn('int64_t libvlc_media_player_get_length(void *player)'),
       playerSetVolume: fn('int libvlc_audio_set_volume(void *player, int volume)'),
       playerSetMute: fn('void libvlc_audio_set_mute(void *player, int mute)'),
       playerGetVideoTrack: fn('int libvlc_video_get_track(void *player)'),
@@ -146,6 +149,69 @@ class LibVlcOutput {
       }
     }, 250);
     this.loopTimer.unref();
+  }
+
+  async transcode(inputPath, outputPath, onProgress, signal) {
+    this.initialize();
+    const transcodeInstance = this.api.instanceNew(0, null);
+    if (!transcodeInstance) throw new Error('libVLC не смог подготовить отдельный процесс перекодирования.');
+    let media;
+    let player;
+    let completed = false;
+    try {
+      media = this.api.mediaNewPath(transcodeInstance, inputPath);
+      if (!media) throw new Error('libVLC не смог открыть исходное видео.');
+
+      const destination = outputPath.replace(/\\/g, '/').replace(/["{}]/g, character => `\\${character}`);
+      const sout = `#transcode{vcodec=h264,venc=x264,vb=0,acodec=mp4a,ab=192,channels=2,samplerate=48000}:std{access=file,mux=mp4,dst="${destination}"}`;
+      this.api.mediaAddOption(media, `:sout=${sout}`);
+      this.api.mediaAddOption(media, ':sout-x264-preset=medium');
+      this.api.mediaAddOption(media, ':sout-x264-crf=18');
+
+      player = this.api.playerNewFromMedia(media);
+      this.api.mediaRelease(media);
+      media = null;
+      if (!player) throw new Error('libVLC не смог подготовить перекодирование.');
+
+      if (this.api.playerPlay(player) !== 0) {
+        throw new Error('libVLC не смог начать перекодирование.');
+      }
+
+      while (true) {
+        if (signal.aborted) {
+          const error = new Error('Перекодирование отменено.');
+          error.name = 'AbortError';
+          throw error;
+        }
+
+        const playbackState = this.api.playerGetState(player);
+        if (playbackState === 6) {
+          completed = true;
+          break;
+        }
+        if (playbackState === 7) {
+          throw new Error('libVLC завершил перекодирование с ошибкой.');
+        }
+
+        const duration = Number(this.api.playerGetLength(player));
+        const position = this.api.playerGetPosition(player);
+        onProgress({
+          percent: duration > 0 && Number.isFinite(position)
+            ? Math.max(0, Math.min(100, position * 100))
+            : null,
+          currentSeconds: duration > 0 && Number.isFinite(position) ? position * duration / 1000 : 0,
+          durationSeconds: duration > 0 ? duration / 1000 : 0
+        });
+        await new Promise(resolve => setTimeout(resolve, 400));
+      }
+    } finally {
+      if (media) this.api.mediaRelease(media);
+      if (player) {
+        if (!completed) this.api.playerStop(player);
+        this.api.playerRelease(player);
+      }
+      this.api.releaseInstance(transcodeInstance);
+    }
   }
 
   action({ action, time, volume, muted, loop, blackout }) {

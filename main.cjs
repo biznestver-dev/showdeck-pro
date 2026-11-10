@@ -21,6 +21,42 @@ const appRoot = path.join(__dirname, 'app-build');
 const appPage = 'showdeck://app/index.html';
 let mainWindow;
 const vlcOutput = new LibVlcOutput();
+let activeTranscode = null;
+
+function assertMainWindow(event) {
+  const senderWindow = BrowserWindow.fromWebContents(event.sender);
+  if (!senderWindow || senderWindow !== mainWindow || senderWindow.isDestroyed()) {
+    throw new Error('Эта операция доступна только в главном окне ShowDeck.');
+  }
+  return senderWindow;
+}
+
+async function moveFileReplacingDestination(sourcePath, destinationPath) {
+  const backupPath = `${destinationPath}.showdeck-backup-${randomUUID()}`;
+  let destinationBackedUp = false;
+  try {
+    try {
+      await fs.rename(destinationPath, backupPath);
+      destinationBackedUp = true;
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+    await fs.rename(sourcePath, destinationPath);
+  } catch (error) {
+    if (destinationBackedUp) {
+      try {
+        await fs.rename(backupPath, destinationPath);
+      } catch (restoreError) {
+        throw new AggregateError(
+          [error, restoreError],
+          `Не удалось заменить файл и восстановить прежнюю версию: ${restoreError.message}`
+        );
+      }
+    }
+    throw error;
+  }
+  if (destinationBackedUp) await fs.rm(backupPath);
+}
 
 function getFontStorePath() {
   return path.join(app.getPath('userData'), 'fonts');
@@ -164,6 +200,94 @@ ipcMain.handle('showdeck:open-project', async (event) => {
   };
 });
 
+ipcMain.handle('showdeck:transcode-video', async (event) => {
+  const parentWindow = assertMainWindow(event);
+  if (activeTranscode) throw new Error('Другое видео уже перекодируется.');
+
+  const controller = new AbortController();
+  let resolveCompletion;
+  const completion = new Promise(resolve => {
+    resolveCompletion = resolve;
+  });
+  const job = { sender: event.sender, controller, completion, quitRequested: false };
+  activeTranscode = job;
+  let temporaryPath;
+
+  try {
+    const sourceResult = await dialog.showOpenDialog(parentWindow, {
+      title: 'Выберите видео для перекодирования',
+      properties: ['openFile'],
+      filters: [{
+        name: 'Видеофайлы',
+        extensions: ['mp4', 'mov', 'm4v', 'mkv', 'avi', 'webm', 'ogv', '3gp', 'ts', 'mts', 'm2ts', 'flv', 'wmv']
+      }]
+    });
+    if (sourceResult.canceled || sourceResult.filePaths.length === 0) return { canceled: true };
+
+    const sourcePath = sourceResult.filePaths[0];
+    const sourceName = path.basename(sourcePath, path.extname(sourcePath));
+    const destinationResult = await dialog.showSaveDialog(parentWindow, {
+      title: 'Сохранить перекодированное видео',
+      defaultPath: `${sourceName}-H264.mp4`,
+      filters: [{ name: 'Видео MP4 (H.264 + AAC)', extensions: ['mp4'] }]
+    });
+    if (destinationResult.canceled || !destinationResult.filePath) return { canceled: true };
+
+    const destinationPath = path.extname(destinationResult.filePath).toLowerCase() === '.mp4'
+      ? destinationResult.filePath
+      : `${destinationResult.filePath}.mp4`;
+    const normalizePath = value => {
+      const resolved = path.resolve(value);
+      return process.platform === 'win32' || process.platform === 'darwin'
+        ? resolved.toLowerCase()
+        : resolved;
+    };
+    if (normalizePath(sourcePath) === normalizePath(destinationPath)) {
+      throw new Error('Выберите другое имя или папку: исходный файл не будет заменён.');
+    }
+
+    temporaryPath = path.join(
+      path.dirname(destinationPath),
+      `.showdeck-${randomUUID()}.partial.mp4`
+    );
+    if (controller.signal.aborted) return { canceled: true };
+    await vlcOutput.transcode(sourcePath, temporaryPath, progress => {
+      if (!event.sender.isDestroyed()) {
+        event.sender.send('showdeck:transcode-progress', progress);
+      }
+    }, controller.signal);
+
+    if (controller.signal.aborted) return { canceled: true };
+    const data = await fs.readFile(temporaryPath);
+    const hasMp4Container = data.includes(Buffer.from('ftyp')) && data.includes(Buffer.from('moov'));
+    const hasH264Track = data.includes(Buffer.from('avc1')) || data.includes(Buffer.from('avc3'));
+    if (!hasMp4Container || !hasH264Track) {
+      throw new Error('libVLC не создал корректный MP4 с видеопотоком H.264.');
+    }
+    if (controller.signal.aborted) return { canceled: true };
+    await moveFileReplacingDestination(temporaryPath, destinationPath);
+    return {
+      canceled: false,
+      fileName: path.basename(destinationPath),
+      data: new Uint8Array(data)
+    };
+  } catch (error) {
+    if (error.name === 'AbortError') return { canceled: true };
+    throw error;
+  } finally {
+    try {
+      if (temporaryPath) await fs.rm(temporaryPath, { force: true });
+    } finally {
+      if (activeTranscode === job) activeTranscode = null;
+      resolveCompletion();
+    }
+  }
+});
+
+ipcMain.on('showdeck:transcode-cancel', event => {
+  if (activeTranscode?.sender === event.sender) activeTranscode.controller.abort();
+});
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1440,
@@ -213,6 +337,7 @@ function createWindow() {
 
   mainWindow.once('ready-to-show', () => mainWindow.show());
   mainWindow.on('closed', () => {
+    if (activeTranscode?.sender === mainWindow?.webContents) activeTranscode.controller.abort();
     mainWindow = null;
   });
   mainWindow.loadURL(appPage);
@@ -246,7 +371,17 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-app.on('before-quit', () => {
+app.on('before-quit', event => {
+  if (activeTranscode) {
+    event.preventDefault();
+    const job = activeTranscode;
+    job.controller.abort();
+    if (!job.quitRequested) {
+      job.quitRequested = true;
+      job.completion.then(() => app.quit());
+    }
+    return;
+  }
   void vlcOutput.dispose().catch(error => {
     console.error('Unable to dispose the libVLC output player:', error);
   });

@@ -141,6 +141,11 @@
         <input id="fileInput" type="file" multiple accept=".pdf,.pptx,.mp4,.webm,.mov,.m4v,.mkv,.avi,.ogv,.3gp,.ts,.mts,.m2ts,.flv,.wmv,.png,.jpg,.jpeg,.webp,.gif,.bmp,.svg,.ttf,.otf,.woff,.woff2" class="hidden" />
       </label>
 
+      <button id="transcodeVideoBtn" title="Создать совместимую копию MP4 (H.264 + AAC), не изменяя оригинал" class="bg-broadcast-card hover:bg-gray-800 border border-broadcast-border text-gray-200 text-xs font-medium px-2.5 py-2 rounded-lg flex items-center gap-1.5 transition">
+        <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75h15m-15 0L9 8.25m-4.5 4.5L9 17.25M19.5 5.25v13.5" /></svg>
+        <span class="hidden xl:inline">Перекодировать</span>
+      </button>
+
       <!-- Font Manager Button -->
       <button id="openFontModalBtn" title="Загрузить шрифты (.ttf, .otf, .woff) и посмотреть шрифты презентации" class="bg-broadcast-card hover:bg-gray-800 border border-broadcast-border text-gray-200 text-xs font-medium px-2.5 py-2 rounded-lg flex items-center gap-1.5 transition relative">
         <span class="font-serif font-bold text-blue-400 text-sm leading-none">Aa</span>
@@ -560,6 +565,21 @@
     </div>
   </div>
 
+  <div id="transcodeModal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+    <div class="bg-broadcast-panel border border-broadcast-border rounded-2xl w-full max-w-md p-5 shadow-2xl">
+      <h2 class="text-base font-bold text-white">Перекодирование видео</h2>
+      <p class="text-xs text-gray-400 mt-1">MP4 • H.264 + AAC • оригинал останется без изменений</p>
+      <p id="transcodeStatus" class="text-sm text-gray-200 mt-5">Выберите исходное видео…</p>
+      <div class="w-full h-2 rounded-full bg-gray-800 mt-3 overflow-hidden">
+        <div id="transcodeProgressBar" class="h-full w-0 bg-blue-500 transition-[width]"></div>
+      </div>
+      <div class="flex items-center justify-between mt-2 text-xs text-gray-400">
+        <span id="transcodePercent">Ожидание</span>
+        <button id="cancelTranscodeBtn" class="px-3 py-1.5 rounded-lg bg-gray-700 hover:bg-gray-600 text-white">Отмена</button>
+      </div>
+    </div>
+  </div>
+
   <!-- SINGLE-SCREEN FULLSCREEN OVERLAY -->
   <div id="localFullscreenOverlay" class="hidden fixed inset-0 bg-black z-50 flex items-center justify-center">
     <div id="localFullscreenStage" class="w-full h-full flex items-center justify-center"></div>
@@ -633,6 +653,12 @@
     // ==========================================
     const dom = {
       fileInput: document.getElementById('fileInput'),
+      transcodeVideoBtn: document.getElementById('transcodeVideoBtn'),
+      transcodeModal: document.getElementById('transcodeModal'),
+      transcodeStatus: document.getElementById('transcodeStatus'),
+      transcodeProgressBar: document.getElementById('transcodeProgressBar'),
+      transcodePercent: document.getElementById('transcodePercent'),
+      cancelTranscodeBtn: document.getElementById('cancelTranscodeBtn'),
       dropZone: document.getElementById('dropZone'),
       cueListContainer: document.getElementById('cueListContainer'),
       cueCountBadge: document.getElementById('cueCountBadge'),
@@ -3538,6 +3564,68 @@
     dom.fileInput.addEventListener('change', (e) => {
       handleFiles(e.target.files);
       e.target.value = '';
+    });
+
+    let transcodeInProgress = false;
+    dom.transcodeVideoBtn.addEventListener('click', async () => {
+      if (!window.showDeckDesktop?.transcodeVideo) {
+        showBanner('Перекодирование доступно в установленном приложении ShowDeck Pro.');
+        return;
+      }
+      if (transcodeInProgress) return;
+
+      transcodeInProgress = true;
+      dom.transcodeVideoBtn.disabled = true;
+      dom.transcodeModal.classList.remove('hidden');
+      dom.transcodeStatus.textContent = 'Выберите исходное видео…';
+      dom.transcodeProgressBar.style.width = '0%';
+      dom.transcodePercent.textContent = 'Подготовка';
+      const unsubscribe = window.showDeckDesktop.onTranscodeProgress(progress => {
+        if (progress.percent === null) {
+          dom.transcodeStatus.textContent = 'Идёт перекодирование…';
+          dom.transcodePercent.textContent = 'Подготовка потока';
+          return;
+        }
+        dom.transcodeStatus.textContent = `Обработка: ${formatTime(progress.currentSeconds)} / ${formatTime(progress.durationSeconds)}`;
+        dom.transcodeProgressBar.style.width = `${progress.percent}%`;
+        dom.transcodePercent.textContent = `${Math.round(progress.percent)}%`;
+      });
+
+      try {
+        const result = await window.showDeckDesktop.transcodeVideo();
+        if (!result.canceled) {
+          if (!(result.data instanceof Uint8Array) || typeof result.fileName !== 'string') {
+            throw new Error('Приложение вернуло некорректный результат перекодирования.');
+          }
+          const convertedFile = new File([result.data], result.fileName, {
+            type: 'video/mp4',
+            lastModified: Date.now()
+          });
+          dom.transcodeStatus.textContent = 'Готово. Добавляю видео в плейлист…';
+          const cueCountBeforeImport = state.cues.length;
+          await handleFiles([convertedFile]);
+          if (state.cues.length === cueCountBeforeImport) {
+            throw new Error('MP4 создан, но не удалось добавить его в плейлист.');
+          }
+          showBanner(`Перекодированное видео добавлено в плейлист: ${result.fileName}`);
+        }
+      } catch (error) {
+        console.error('Ошибка перекодирования видео:', error);
+        showBanner(`Не удалось завершить перекодирование или добавить результат в плейлист: ${error.message}`);
+      } finally {
+        unsubscribe();
+        transcodeInProgress = false;
+        dom.transcodeVideoBtn.disabled = false;
+        dom.cancelTranscodeBtn.disabled = false;
+        dom.transcodeModal.classList.add('hidden');
+      }
+    });
+
+    dom.cancelTranscodeBtn.addEventListener('click', () => {
+      if (!transcodeInProgress) return;
+      dom.transcodeStatus.textContent = 'Останавливаю перекодирование…';
+      dom.cancelTranscodeBtn.disabled = true;
+      window.showDeckDesktop?.cancelTranscode();
     });
 
     const saveProjectBtn = document.getElementById('saveProjectBtn');

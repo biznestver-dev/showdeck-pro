@@ -7,5 +7,12 @@ contextBridge.exposeInMainWorld('showDeckDesktop', {
   saveFont: (data, fontInfo) =>
     ipcRenderer.invoke('showdeck:save-font', data, fontInfo),
   listFonts: () => ipcRenderer.invoke('showdeck:list-fonts'),
-  removeFont: (id) => ipcRenderer.invoke('showdeck:remove-font', id)
+  removeFont: (id) => ipcRenderer.invoke('showdeck:remove-font', id),
+  transcodeVideo: () => ipcRenderer.invoke('showdeck:transcode-video'),
+  cancelTranscode: () => ipcRenderer.send('showdeck:transcode-cancel'),
+  onTranscodeProgress: (callback) => {
+    const listener = (_event, progress) => callback(progress);
+    ipcRenderer.on('showdeck:transcode-progress', listener);
+    return () => ipcRenderer.removeListener('showdeck:transcode-progress', listener);
+  }
 });
