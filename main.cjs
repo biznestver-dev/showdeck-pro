@@ -1,4 +1,5 @@
-const { app, BrowserWindow, net, protocol, shell } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, net, protocol, shell } = require('electron');
+const fs = require('node:fs/promises');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 
@@ -34,6 +35,37 @@ function registerAppProtocol() {
   });
 }
 
+ipcMain.handle('showdeck:save-project', async (event, data, suggestedName) => {
+  if (!(data instanceof Uint8Array)) {
+    throw new TypeError('Invalid project data.');
+  }
+
+  const result = await dialog.showSaveDialog(BrowserWindow.fromWebContents(event.sender), {
+    title: 'Сохранить проект ShowDeck',
+    defaultPath: path.basename(suggestedName || 'ShowDeck-Project.showdeck'),
+    filters: [{ name: 'Проект ShowDeck', extensions: ['showdeck'] }]
+  });
+  if (result.canceled || !result.filePath) return { canceled: true };
+
+  await fs.writeFile(result.filePath, data);
+  return { canceled: false, filePath: result.filePath };
+});
+
+ipcMain.handle('showdeck:open-project', async (event) => {
+  const result = await dialog.showOpenDialog(BrowserWindow.fromWebContents(event.sender), {
+    title: 'Открыть проект ShowDeck',
+    properties: ['openFile'],
+    filters: [{ name: 'Проект ShowDeck', extensions: ['showdeck'] }]
+  });
+  if (result.canceled || result.filePaths.length === 0) return { canceled: true };
+
+  return {
+    canceled: false,
+    filePath: result.filePaths[0],
+    data: new Uint8Array(await fs.readFile(result.filePaths[0]))
+  };
+});
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1440,
@@ -44,6 +76,7 @@ function createWindow() {
     backgroundColor: '#0b0d10',
     autoHideMenuBar: true,
     webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true

@@ -231,12 +231,17 @@
 
     <!-- LEFT SIDEBAR: UNIFIED CUE LIST / PLAYLIST -->
     <aside id="dropZone" class="w-full lg:w-80 xl:w-96 bg-broadcast-panel border-b lg:border-b-0 lg:border-r border-broadcast-border flex flex-col h-1/2 lg:h-full shrink-0 transition-colors">
-      <div class="px-3 py-2.5 border-b border-broadcast-border flex items-center justify-between bg-broadcast-card/40">
+      <div class="px-3 py-2.5 border-b border-broadcast-border flex flex-col gap-1.5 bg-broadcast-card/40">
         <div class="flex items-center gap-2">
           <span class="text-xs font-bold uppercase tracking-wider text-gray-300">Плейлист (Cue List)</span>
           <span id="cueCountBadge" class="text-[11px] font-mono bg-gray-800 text-gray-300 px-2 py-0.5 rounded-full">0</span>
+          <div class="ml-auto flex items-center gap-1">
+            <button id="saveProjectBtn" title="Сохранить проект со всеми файлами" class="text-[10px] text-emerald-300 hover:text-emerald-200 px-2 py-1 rounded hover:bg-emerald-500/10 transition">Сохранить</button>
+            <button id="openProjectBtn" title="Открыть сохранённый проект" class="text-[10px] text-cyan-300 hover:text-cyan-200 px-2 py-1 rounded hover:bg-cyan-500/10 transition">Открыть</button>
+            <input id="projectFileInput" type="file" accept=".showdeck,application/zip" class="hidden" />
+          </div>
         </div>
-        <div class="flex items-center gap-1.5">
+        <div class="flex items-center justify-end gap-1.5">
           <button id="loadDemoBtn" class="text-[11px] text-blue-400 hover:text-blue-300 px-2 py-1 rounded hover:bg-blue-500/10 transition">
             Демо-набор
           </button>
@@ -938,7 +943,8 @@
         weight: meta.weight,
         style: meta.style,
         fileName,
-        source
+        source,
+        fontData: arrayBuffer.slice(0)
       });
 
       return meta;
@@ -1256,6 +1262,260 @@
         updateMonitors();
         syncOutputWindow();
       }
+    }
+
+    async function addProjectAsset(zip, path, blob) {
+      if (!(blob instanceof Blob)) {
+        throw new Error(`Не удалось сохранить файл проекта: ${path}`);
+      }
+      zip.file(path, blob);
+      return { path, type: blob.type || '' };
+    }
+
+    async function addProjectUrlAsset(zip, path, url) {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`Не удалось прочитать данные проекта (${response.status}).`);
+      return addProjectAsset(zip, path, await response.blob());
+    }
+
+    async function buildProjectArchive() {
+      const zip = new JSZip();
+      const manifest = {
+        format: 'showdeck-project',
+        version: 1,
+        savedAt: new Date().toISOString(),
+        currentIndex: state.currentIndex,
+        isBlackout: state.isBlackout,
+        cues: [],
+        pptxDecks: [],
+        fonts: []
+      };
+      let assetIndex = 0;
+      const nextAssetPath = (category) => `assets/${category}-${assetIndex++}`;
+      const totalItems = Math.max(1, state.cues.length + state.pptxDecks.length + state.loadedFonts.length);
+      let completedItems = 0;
+      setProgress(true, 'Подготовка проекта...', 0);
+
+      for (const cue of state.cues) {
+        const savedCue = { ...cue };
+        delete savedCue.fileObj;
+        savedCue.src = null;
+        savedCue.thumb = null;
+
+        if (cue.fileObj) {
+          const fileName = cue.fileObj.name || cue.title || `media-${cue.id}`;
+          savedCue.fileAsset = await addProjectAsset(zip, nextAssetPath('cue-file'), cue.fileObj);
+          savedCue.fileName = fileName;
+          savedCue.fileType = cue.fileObj.type || '';
+          savedCue.fileLastModified = cue.fileObj.lastModified || 0;
+        } else {
+          savedCue.fileAsset = null;
+        }
+
+        if (cue.src) {
+          if (cue.fileObj && cue.src.startsWith('blob:')) {
+            savedCue.srcFromFile = true;
+          } else if (cue.src.startsWith('blob:') || cue.src.startsWith('data:')) {
+            savedCue.srcAsset = await addProjectUrlAsset(zip, nextAssetPath('cue-source'), cue.src);
+          } else {
+            savedCue.src = cue.src;
+          }
+        }
+
+        if (cue.thumb) {
+          if (cue.thumb === cue.src) {
+            savedCue.thumbFromSource = true;
+          } else if (cue.fileObj && cue.thumb.startsWith('blob:') && savedCue.srcFromFile) {
+            savedCue.thumbFromSource = true;
+          } else if (cue.thumb.startsWith('blob:') || cue.thumb.startsWith('data:')) {
+            savedCue.thumbAsset = await addProjectUrlAsset(zip, nextAssetPath('cue-thumb'), cue.thumb);
+          } else {
+            savedCue.thumb = cue.thumb;
+          }
+        }
+
+        manifest.cues.push(savedCue);
+        completedItems++;
+        setProgress(true, 'Сохранение списка слайдов и медиа...', (completedItems / totalItems) * 100);
+      }
+
+      for (const deck of state.pptxDecks) {
+        const fileName = deck.file.name || `presentation-${deck.deckId}.pptx`;
+        manifest.pptxDecks.push({
+          deckId: deck.deckId,
+          fileName,
+          fileType: deck.file.type || '',
+          fileLastModified: deck.file.lastModified || 0,
+          fileAsset: await addProjectAsset(zip, nextAssetPath('pptx'), deck.file),
+          requiredFonts: Array.from(deck.requiredFonts)
+        });
+        completedItems++;
+        setProgress(true, 'Сохранение исходных презентаций...', (completedItems / totalItems) * 100);
+      }
+
+      for (const font of state.loadedFonts) {
+        if (!(font.fontData instanceof ArrayBuffer)) continue;
+        manifest.fonts.push({
+          fileName: font.fileName,
+          source: font.source,
+          family: font.family,
+          fileAsset: await addProjectAsset(
+            zip,
+            nextAssetPath('font'),
+            new Blob([font.fontData], { type: 'font/ttf' })
+          )
+        });
+        completedItems++;
+        setProgress(true, 'Сохранение шрифтов...', (completedItems / totalItems) * 100);
+      }
+
+      zip.file('manifest.json', JSON.stringify(manifest));
+      return zip.generateAsync({
+        type: 'uint8array',
+        compression: 'DEFLATE',
+        compressionOptions: { level: 1 }
+      });
+    }
+
+    async function saveProject() {
+      const projectData = await buildProjectArchive();
+      setProgress(false);
+
+      if (window.showDeckDesktop?.saveProject) {
+        const result = await window.showDeckDesktop.saveProject(projectData, 'ShowDeck-Project.showdeck');
+        if (!result.canceled) showBanner(`Проект сохранён: ${result.filePath}`);
+        return;
+      }
+
+      const projectBlob = new Blob([projectData], { type: 'application/zip' });
+      const downloadUrl = URL.createObjectURL(projectBlob);
+      const downloadLink = document.createElement('a');
+      downloadLink.href = downloadUrl;
+      downloadLink.download = 'ShowDeck-Project.showdeck';
+      downloadLink.click();
+      setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+      showBanner('Проект сохранён в папку загрузок.');
+    }
+
+    async function readProjectAsset(zip, assetRef) {
+      if (!assetRef || typeof assetRef.path !== 'string' ||
+          !assetRef.path.startsWith('assets/') || assetRef.path.split('/').includes('..')) {
+        throw new Error('В файле проекта указана некорректная ссылка на ресурс.');
+      }
+      const entry = zip.file(assetRef.path);
+      if (!entry) throw new Error(`В проекте отсутствует файл ${assetRef.path}.`);
+      const bytes = await entry.async('uint8array');
+      return new Blob([bytes], { type: assetRef.type || '' });
+    }
+
+    async function readProjectFile(zip, assetRef, fileName, fileType, lastModified) {
+      const blob = await readProjectAsset(zip, assetRef);
+      return new File([blob], fileName || 'project-media', {
+        type: fileType || blob.type,
+        lastModified: lastModified || Date.now()
+      });
+    }
+
+    async function restoreProjectArchive(data) {
+      const zip = await JSZip.loadAsync(data);
+      const manifestEntry = zip.file('manifest.json');
+      if (!manifestEntry) throw new Error('Это не файл проекта ShowDeck.');
+      const manifest = JSON.parse(await manifestEntry.async('string'));
+      if (manifest.format !== 'showdeck-project' || manifest.version !== 1 ||
+          !Array.isArray(manifest.cues) || !Array.isArray(manifest.pptxDecks) ||
+          !Array.isArray(manifest.fonts)) {
+        throw new Error('Формат проекта не поддерживается или файл повреждён.');
+      }
+
+      const restoredCues = [];
+      for (const savedCue of manifest.cues) {
+        if (!savedCue || typeof savedCue.id !== 'string' || typeof savedCue.type !== 'string') {
+          throw new Error('В проекте обнаружен некорректный элемент плейлиста.');
+        }
+        const cue = { ...savedCue, fileObj: null };
+        if (savedCue.fileAsset) {
+          cue.fileObj = await readProjectFile(
+            zip,
+            savedCue.fileAsset,
+            savedCue.fileName,
+            savedCue.fileType,
+            savedCue.fileLastModified
+          );
+        }
+        if (savedCue.srcFromFile) {
+          if (!cue.fileObj) throw new Error(`Не найден исходный файл для «${savedCue.title || cue.id}».`);
+          cue.src = URL.createObjectURL(cue.fileObj);
+        } else if (savedCue.srcAsset) {
+          cue.src = URL.createObjectURL(await readProjectAsset(zip, savedCue.srcAsset));
+        }
+        if (savedCue.thumbFromSource) {
+          cue.thumb = cue.src;
+        } else if (savedCue.thumbAsset) {
+          cue.thumb = URL.createObjectURL(await readProjectAsset(zip, savedCue.thumbAsset));
+        }
+        delete cue.srcAsset;
+        delete cue.thumbAsset;
+        delete cue.fileAsset;
+        delete cue.fileName;
+        delete cue.fileType;
+        delete cue.fileLastModified;
+        delete cue.srcFromFile;
+        delete cue.thumbFromSource;
+        restoredCues.push(cue);
+      }
+
+      const restoredDecks = [];
+      for (const deck of manifest.pptxDecks) {
+        if (!deck || typeof deck.deckId !== 'string' || !Array.isArray(deck.requiredFonts)) {
+          throw new Error('В проекте обнаружена некорректная презентация PPTX.');
+        }
+        restoredDecks.push({
+          deckId: deck.deckId,
+          file: await readProjectFile(zip, deck.fileAsset, deck.fileName, deck.fileType, deck.fileLastModified),
+          requiredFonts: new Set(deck.requiredFonts)
+        });
+      }
+
+      const restoredFonts = [];
+      for (const font of manifest.fonts) {
+        if (!font || typeof font.family !== 'string' || typeof font.fileName !== 'string') {
+          throw new Error('В проекте обнаружен некорректный шрифт.');
+        }
+        restoredFonts.push({
+          fileName: font.fileName,
+          source: font.source || 'user',
+          family: font.family,
+          data: await readProjectAsset(zip, font.fileAsset)
+        });
+      }
+
+      for (const font of restoredFonts) {
+        await registerFontBuffer(await font.data.arrayBuffer(), font.fileName, font.source, font.family);
+      }
+
+      state.cues.forEach(cue => {
+        if (cue.src?.startsWith('blob:')) URL.revokeObjectURL(cue.src);
+        if (cue.thumb?.startsWith('blob:') && cue.thumb !== cue.src) URL.revokeObjectURL(cue.thumb);
+      });
+      state.cues = restoredCues;
+      state.pptxDecks = restoredDecks;
+      state.currentIndex = Number.isInteger(manifest.currentIndex) &&
+        manifest.currentIndex >= 0 && manifest.currentIndex < restoredCues.length
+        ? manifest.currentIndex
+        : -1;
+      state.isBlackout = false;
+      state.timerSeconds = 0;
+      dom.showTimer.textContent = formatHMS(0);
+      renderPlaylist();
+      updateFontManagerUI();
+      updateMonitors();
+      toggleBlackout(manifest.isBlackout === true);
+      setProgress(false);
+      showBanner(`Проект открыт: загружено слайдов — ${state.cues.length}.`);
+    }
+
+    async function openProjectFile(file) {
+      await restoreProjectArchive(await file.arrayBuffer());
     }
 
     async function rerenderAllPptxDecks() {
@@ -3065,6 +3325,53 @@
     dom.fileInput.addEventListener('change', (e) => {
       handleFiles(e.target.files);
       e.target.value = '';
+    });
+
+    const saveProjectBtn = document.getElementById('saveProjectBtn');
+    const openProjectBtn = document.getElementById('openProjectBtn');
+    const projectFileInput = document.getElementById('projectFileInput');
+
+    saveProjectBtn.addEventListener('click', async () => {
+      saveProjectBtn.disabled = true;
+      try {
+        await saveProject();
+      } catch (err) {
+        console.error('Ошибка сохранения проекта:', err);
+        setProgress(false);
+        showBanner(`Не удалось сохранить проект: ${err.message}`);
+      } finally {
+        saveProjectBtn.disabled = false;
+      }
+    });
+
+    openProjectBtn.addEventListener('click', async () => {
+      if (!window.showDeckDesktop?.openProject) {
+        projectFileInput.click();
+        return;
+      }
+
+      openProjectBtn.disabled = true;
+      try {
+        const result = await window.showDeckDesktop.openProject();
+        if (!result.canceled) await restoreProjectArchive(result.data);
+      } catch (err) {
+        console.error('Ошибка открытия проекта:', err);
+        showBanner(`Не удалось открыть проект: ${err.message}`);
+      } finally {
+        openProjectBtn.disabled = false;
+      }
+    });
+
+    projectFileInput.addEventListener('change', async (e) => {
+      const file = e.target.files?.[0];
+      e.target.value = '';
+      if (!file) return;
+      try {
+        await openProjectFile(file);
+      } catch (err) {
+        console.error('Ошибка открытия проекта:', err);
+        showBanner(`Не удалось открыть проект: ${err.message}`);
+      }
     });
 
     dom.fontFileInput.addEventListener('change', (e) => {
