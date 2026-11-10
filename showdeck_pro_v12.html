@@ -2892,7 +2892,6 @@
       videoPlaybackStatsInterval = null;
       dom.vidPlaybackStats.textContent = 'Кадры: ожидание';
       dom.vidPlaybackStats.className = 'font-mono text-[10px] text-gray-400 whitespace-nowrap';
-      stopOutputVideoStream();
       if (state.videoElementPgm) {
         state.videoElementPgm.pause();
         state.videoElementPgm.removeAttribute('src');
@@ -3024,36 +3023,6 @@
       }
     }
 
-    let outputVideoStream = null;
-    let outputVideoStreamSource = null;
-    let outputStreamFallbackNotified = false;
-
-    function stopOutputVideoStream() {
-      if (outputVideoStream) {
-        outputVideoStream.getTracks().forEach(track => track.stop());
-      }
-      outputVideoStream = null;
-      outputVideoStreamSource = null;
-    }
-
-    function getOutputVideoStream() {
-      const video = state.videoElementPgm;
-      if (!video || typeof video.captureStream !== 'function') {
-        stopOutputVideoStream();
-        return null;
-      }
-      if (outputVideoStream && outputVideoStreamSource === video) return outputVideoStream;
-
-      stopOutputVideoStream();
-      outputVideoStream = video.captureStream();
-      outputVideoStreamSource = video;
-      return outputVideoStream;
-    }
-
-    window.showVideoOutputFallback = (title, reason) => {
-      showBanner(`Для Output включено отдельное декодирование видео «${title}»: ${reason}`);
-    };
-
     function playActiveVideo() {
       if (state.videoElementPgm) {
         state.videoElementPgm.play().catch(error => {
@@ -3150,7 +3119,7 @@
   <div id="stage"></div>
   <div id="outputOverlayTimer" style="display:none; position:fixed; z-index:15; transition: color 0.7s ease; cursor:move; user-select:none; font-family:'JetBrains Mono', monospace; font-weight:700; line-height:1; transform:translate(-50%, -50%); white-space:nowrap;"></div>
   <div id="blackout"></div>
-  <button id="fsPrompt" onclick="document.documentElement.requestFullscreen(); this.style.display='none';">
+  <button id="fsPrompt" onclick="window.showDeckVlcOutput.fullscreen().then(() => { this.style.display='none'; }).catch(error => { if (window.opener && typeof window.opener.showVideoPlaybackError === 'function') window.opener.showVideoPlaybackError('видео', null, error.message); });">
     ⛶ Развернуть вывод на весь экран (F11)
   </button>
 
@@ -3158,61 +3127,64 @@
     const stage = document.getElementById('stage');
     const blackout = document.getElementById('blackout');
     const ovTimerEl = document.getElementById('outputOverlayTimer');
-    let currentVideo = null;
     let currentVideoTitle = 'видео';
-    let currentVideoSrc = null;
-    let currentVideoUsesStream = false;
-    let currentVideoStream = null;
-    let currentVideoFallbackTime = 0;
-    let currentVideoShouldPlay = false;
     let currentCueSrc = null;
-    let cursorHideTimeout = null;
+    let currentVlcKey = null;
+    let readyVlcKey = null;
+    let vlcOpenSequence = 0;
+    let vlcOpenQueue = Promise.resolve();
+    let nativeFullscreen = false;
 
-    function showOutputStreamFallback(error, notify = true) {
-      currentVideoUsesStream = false;
-      currentVideoStream = null;
-      if (currentVideo) {
-        const video = currentVideo;
-        currentVideo.pause();
-        video.srcObject = null;
-        video.preload = 'metadata';
-        video.src = currentVideoSrc;
-        const resumeTime = currentVideoFallbackTime;
-        if (currentVideoShouldPlay || resumeTime > 0) {
-          video.addEventListener('loadedmetadata', () => {
-            if (resumeTime > 0) video.currentTime = resumeTime;
-            if (currentVideoShouldPlay) {
-              video.play().catch(playError => {
-                if (window.opener && typeof window.opener.showVideoPlaybackError === 'function') {
-                  window.opener.showVideoPlaybackError(currentVideoTitle, video.error?.code, playError.message);
-                }
-              });
-            }
-          }, { once: true });
+    function reportVlcError(title, error) {
+      if (window.opener && typeof window.opener.showVideoPlaybackError === 'function') {
+        window.opener.showVideoPlaybackError(title || 'видео', null, error.message || String(error));
+      }
+    }
+
+    function sendVlcAction(payload, title = currentVideoTitle) {
+      vlcOpenQueue = vlcOpenQueue
+        .then(() => window.showDeckVlcOutput.action(payload))
+        .catch(error => reportVlcError(title, error));
+      return vlcOpenQueue;
+    }
+
+    function queueVlcOpen(cue, msg, uniqueKey) {
+      const sequence = ++vlcOpenSequence;
+      currentVlcKey = uniqueKey;
+      vlcOpenQueue = vlcOpenQueue.then(async () => {
+        let bytes;
+        let location;
+        if (cue.fileObj) {
+          bytes = new Uint8Array(await cue.fileObj.arrayBuffer());
+        } else if (typeof cue.src === 'string' && /^(blob:|data:)/i.test(cue.src)) {
+          bytes = new Uint8Array(await (await fetch(cue.src)).arrayBuffer());
+        } else if (typeof cue.src === 'string') {
+          location = cue.src;
+        } else {
+          throw new Error('В источнике видео отсутствуют данные.');
         }
-      }
-      if (notify && window.opener && typeof window.opener.showVideoOutputFallback === 'function') {
-        window.opener.showVideoOutputFallback(currentVideoTitle, error.message || 'общий видеопоток недоступен');
-      }
-    }
 
-    function useOutputVideoStream(video, stream) {
-      try {
-        video.pause();
-        video.removeAttribute('src');
-        video.srcObject = stream;
-        currentVideoUsesStream = true;
-        currentVideoStream = stream;
-        video.play().catch(showOutputStreamFallback);
-      } catch (error) {
-        showOutputStreamFallback(error);
-      }
+        if (sequence !== vlcOpenSequence) return;
+        await window.showDeckVlcOutput.open({
+          bytes,
+          location,
+          fileName: cue.fileObj?.name || cue.title || 'video',
+          timeMs: Math.max(0, Number(msg.currentTime) || 0) * 1000,
+          volume: Math.round(Math.max(0, Math.min(1, Number(msg.volume ?? 1))) * 100),
+          muted: !!msg.muteOutput,
+          loop: !!cue.loop,
+          playing: !!msg.isPlaying,
+          blackout: !!msg.isBlackout
+        });
+        if (sequence === vlcOpenSequence) readyVlcKey = uniqueKey;
+      }).catch(error => reportVlcError(cue.title, error));
     }
+    let cursorHideTimeout = null;
 
     function scheduleCursorHide() {
       document.body.classList.remove('cursor-hidden');
       clearTimeout(cursorHideTimeout);
-      if (document.fullscreenElement) {
+      if (document.fullscreenElement || nativeFullscreen) {
         cursorHideTimeout = setTimeout(() => {
           document.body.classList.add('cursor-hidden');
         }, 1200);
@@ -3220,8 +3192,18 @@
     }
 
     document.addEventListener('mousemove', scheduleCursorHide);
+    window.showDeckVlcOutput.onFullscreenChange(fullscreen => {
+      nativeFullscreen = fullscreen;
+      document.getElementById('fsPrompt').style.display = fullscreen ? 'none' : '';
+      if (fullscreen) {
+        scheduleCursorHide();
+      } else {
+        clearTimeout(cursorHideTimeout);
+        document.body.classList.remove('cursor-hidden');
+      }
+    });
     document.addEventListener('fullscreenchange', () => {
-      if (!document.fullscreenElement) {
+      if (!document.fullscreenElement && !nativeFullscreen) {
         clearTimeout(cursorHideTimeout);
         document.body.classList.remove('cursor-hidden');
       } else {
@@ -3286,99 +3268,57 @@
     window.renderState = function(msg) {
       blackout.style.display = msg.isBlackout ? 'block' : 'none';
       if (msg.overlayTimer) window.updateOverlayTimer(msg.overlayTimer);
+      if (readyVlcKey && readyVlcKey === currentVlcKey) {
+        sendVlcAction({
+          volume: msg.volume ?? 1,
+          muted: !!msg.muteOutput,
+          loop: !!msg.cue?.loop,
+          blackout: !!msg.isBlackout
+        });
+      }
 
       if (!msg.cue || msg.cue.type === 'blackout') {
+        vlcOpenSequence++;
+        if (currentVlcKey) sendVlcAction({ action: 'stop' });
+        currentVlcKey = null;
+        readyVlcKey = null;
         stage.innerHTML = '';
-        currentVideo = null;
         currentVideoTitle = 'видео';
-        currentVideoSrc = null;
-        currentVideoUsesStream = false;
-        currentVideoStream = null;
         currentCueSrc = null;
         return;
       }
 
       const uniqueKey = msg.cue.id + '_' + (msg.cue.src ? msg.cue.src.slice(0, 64) : '');
       if (currentCueSrc === uniqueKey) {
-        if (currentVideo) {
-          currentVideo.loop = !!msg.cue.loop;
-          currentVideo.volume = msg.volume ?? 1;
-          currentVideo.muted = !!msg.muteOutput;
-          currentVideoFallbackTime = msg.currentTime || 0;
-          currentVideoShouldPlay = !!msg.isPlaying;
-          if (msg.videoStream && currentVideoStream !== msg.videoStream) {
-            useOutputVideoStream(currentVideo, msg.videoStream);
-          } else if (!msg.videoStream && currentVideoUsesStream) {
-            showOutputStreamFallback(new Error('режим вывода звука требует отдельного декодера'), false);
-          }
-        }
+        if (currentVlcKey) return;
         return;
       }
 
       currentCueSrc = uniqueKey;
+      if (currentVlcKey) sendVlcAction({ action: 'stop' });
+      currentVlcKey = null;
+      readyVlcKey = null;
       stage.innerHTML = '';
-      currentVideo = null;
       currentVideoTitle = msg.cue.title || 'видео';
-      currentVideoSrc = msg.cue.src;
-      currentVideoUsesStream = false;
-      currentVideoStream = null;
-      currentVideoFallbackTime = msg.currentTime || 0;
-      currentVideoShouldPlay = !!msg.isPlaying;
 
       if (msg.cue.type === 'image') {
         const img = document.createElement('img');
         img.src = msg.cue.fileObj ? URL.createObjectURL(msg.cue.fileObj) : msg.cue.src;
         stage.appendChild(img);
       } else if (msg.cue.type === 'video') {
-        const vid = document.createElement('video');
-        vid.preload = 'metadata';
-        vid.loop = !!msg.cue.loop;
-        vid.volume = msg.volume ?? 1;
-        vid.muted = !!msg.muteOutput;
-        vid.playsInline = true;
-        vid.addEventListener('error', () => {
-          if (window.opener && typeof window.opener.showVideoPlaybackError === 'function') {
-            window.opener.showVideoPlaybackError(msg.cue.title, vid.error?.code);
-          }
-        });
-        stage.appendChild(vid);
-        currentVideo = vid;
-
-        if (msg.videoStream) {
-          useOutputVideoStream(vid, msg.videoStream);
-        } else {
-          vid.src = msg.cue.src;
-        }
-
-        if (!msg.videoStream && msg.isPlaying) {
-          vid.currentTime = msg.currentTime || 0;
-          vid.play().catch(error => {
-            if (window.opener && typeof window.opener.showVideoPlaybackError === 'function') {
-              window.opener.showVideoPlaybackError(msg.cue.title, vid.error?.code, error.message);
-            }
-          });
-        }
+        queueVlcOpen(msg.cue, msg, uniqueKey);
       }
     };
 
     window.videoAction = function(msg) {
-      if (!currentVideo) return;
-      if (msg.action === 'play') currentVideoShouldPlay = true;
-      if (msg.action === 'pause') currentVideoShouldPlay = false;
-      if (typeof msg.time === 'number') currentVideoFallbackTime = msg.time;
-      if (!currentVideoUsesStream && typeof msg.time === 'number' && Math.abs(currentVideo.currentTime - msg.time) > 0.35) {
-        currentVideo.currentTime = msg.time;
-      }
-      if (msg.action === 'play' && !currentVideoUsesStream) {
-        currentVideo.play().catch(error => {
-          if (window.opener && typeof window.opener.showVideoPlaybackError === 'function') {
-            window.opener.showVideoPlaybackError(currentVideoTitle, currentVideo.error?.code, error.message);
-          }
-        });
-      }
-      if (msg.action === 'pause' && !currentVideoUsesStream) currentVideo.pause();
-      if (msg.action === 'volume') currentVideo.volume = msg.volume;
-      if (msg.action === 'loop') currentVideo.loop = msg.loop;
+      if (!currentVlcKey) return;
+      const action = msg.action === 'volume' || msg.action === 'loop' ? undefined : msg.action;
+      sendVlcAction({
+        action,
+        time: msg.time,
+        volume: msg.action === 'volume' ? msg.volume : undefined,
+        loop: msg.action === 'loop' ? msg.loop : undefined
+      });
     };
 
     window.addEventListener('keydown', (e) => {
@@ -3410,7 +3350,6 @@
         if (!state.outputWindow || state.outputWindow.closed) {
           clearInterval(checkClosed);
           state.outputWindow = null;
-          stopOutputVideoStream();
           dom.outputBtnLabel.textContent = 'Экран вывода (Output)';
           dom.openOutputBtn.classList.replace('bg-blue-600', 'bg-emerald-600');
           if (state.videoElementPgm) state.videoElementPgm.muted = false;
@@ -3421,7 +3360,6 @@
 
     function syncOutputWindow() {
       if (!state.outputWindow || state.outputWindow.closed) {
-        stopOutputVideoStream();
         return;
       }
       if (typeof state.outputWindow.renderState !== 'function') return;
@@ -3430,26 +3368,6 @@
       const muteOutput = dom.audioOutputMode.value === 'operator_only';
       const isPlaying = state.videoElementPgm ? !state.videoElementPgm.paused : false;
       const currentTime = state.videoElementPgm ? state.videoElementPgm.currentTime : 0;
-      const shouldShareVideo = cue?.type === 'video' && muteOutput;
-      let videoStream = null;
-
-      if (shouldShareVideo) {
-        try {
-          videoStream = getOutputVideoStream();
-        } catch (error) {
-          stopOutputVideoStream();
-          if (!outputStreamFallbackNotified) {
-            outputStreamFallbackNotified = true;
-            showBanner(`Output использует отдельный видеодекодер: не удалось передать общий поток (${error.message}).`);
-          }
-        }
-
-        if (!videoStream && !outputStreamFallbackNotified) {
-          outputStreamFallbackNotified = true;
-          showBanner('Output использует отдельный видеодекодер: Chromium не поддерживает передачу общего видеопотока в этом режиме.');
-        }
-      }
-
       state.outputWindow.renderState({
         cue,
         isBlackout: state.isBlackout,
@@ -3457,11 +3375,8 @@
         muteOutput,
         isPlaying,
         currentTime,
-        videoStream,
         overlayTimer: getOverlayTimerRenderPayload()
       });
-
-      if (!shouldShareVideo) stopOutputVideoStream();
     }
 
     // ==========================================

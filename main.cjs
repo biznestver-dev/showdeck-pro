@@ -3,6 +3,7 @@ const { randomUUID } = require('node:crypto');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
+const LibVlcOutput = require('./libvlc-output.cjs');
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -19,6 +20,7 @@ protocol.registerSchemesAsPrivileged([
 const appRoot = path.join(__dirname, 'app-build');
 const appPage = 'showdeck://app/index.html';
 let mainWindow;
+const vlcOutput = new LibVlcOutput();
 
 function getFontStorePath() {
   return path.join(app.getPath('userData'), 'fonts');
@@ -117,6 +119,36 @@ ipcMain.handle('showdeck:remove-font', async (_event, id) => {
   ]);
 });
 
+ipcMain.handle('showdeck:vlc-output-open', async (event, media) => {
+  const outputWindow = BrowserWindow.fromWebContents(event.sender);
+  if (!outputWindow || outputWindow === mainWindow || outputWindow.isDestroyed()) {
+    throw new Error('Видеовывод доступен только в окне Output.');
+  }
+  if (!media || typeof media !== 'object') throw new TypeError('Некорректные данные видео.');
+
+  await vlcOutput.open(outputWindow, media);
+  return { opened: true };
+});
+
+ipcMain.handle('showdeck:vlc-output-action', (event, payload) => {
+  const outputWindow = BrowserWindow.fromWebContents(event.sender);
+  if (!outputWindow || outputWindow === mainWindow || outputWindow.isDestroyed()) {
+    throw new Error('Видеоуправление доступно только в окне Output.');
+  }
+  if (!payload || typeof payload !== 'object') throw new TypeError('Некорректная команда видео.');
+  vlcOutput.action(payload);
+  return { updated: true };
+});
+
+ipcMain.handle('showdeck:vlc-output-fullscreen', (event) => {
+  const outputWindow = BrowserWindow.fromWebContents(event.sender);
+  if (!outputWindow || outputWindow === mainWindow || outputWindow.isDestroyed()) {
+    throw new Error('Полный экран доступен только в окне Output.');
+  }
+  outputWindow.setFullScreen(!outputWindow.isFullScreen());
+  return { fullscreen: outputWindow.isFullScreen() };
+});
+
 ipcMain.handle('showdeck:open-project', async (event) => {
   const result = await dialog.showOpenDialog(BrowserWindow.fromWebContents(event.sender), {
     title: 'Открыть проект ShowDeck',
@@ -158,6 +190,7 @@ function createWindow() {
           height: 720,
           autoHideMenuBar: true,
           webPreferences: {
+            preload: path.join(__dirname, 'preload-output.cjs'),
             contextIsolation: true,
             nodeIntegration: false,
             sandbox: true
@@ -185,6 +218,21 @@ function createWindow() {
   mainWindow.loadURL(appPage);
 }
 
+app.on('browser-window-created', (_event, window) => {
+  if (window === mainWindow) return;
+  window.on('enter-full-screen', () => {
+    window.webContents.send('showdeck:vlc-output-fullscreen-changed', true);
+  });
+  window.on('leave-full-screen', () => {
+    window.webContents.send('showdeck:vlc-output-fullscreen-changed', false);
+  });
+  window.on('closed', () => {
+    void vlcOutput.releasePlayer().catch(error => {
+      console.error('Unable to release the libVLC output player:', error);
+    });
+  });
+});
+
 app.whenReady().then(() => {
   registerAppProtocol();
   createWindow();
@@ -196,4 +244,10 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
+});
+
+app.on('before-quit', () => {
+  void vlcOutput.dispose().catch(error => {
+    console.error('Unable to dispose the libVLC output player:', error);
+  });
 });

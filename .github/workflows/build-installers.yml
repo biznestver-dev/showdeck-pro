@@ -44,6 +44,42 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Download VLC runtime for macOS
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        run: |
+          archive="$RUNNER_TEMP/vlc-3.0.24-universal.dmg"
+          mount="$RUNNER_TEMP/vlc-mount"
+          curl --fail --location --silent --show-error \
+            https://get.videolan.org/vlc/3.0.24/macosx/vlc-3.0.24-universal.dmg \
+            --output "$archive"
+          echo "2c8e89f7f42e53c2fb0e87b6dfa39b49f1364b25080aaa2e476ac74c0d7beb3c  $archive" | shasum -a 256 --check
+          mkdir -p "$mount"
+          hdiutil attach "$archive" -nobrowse -readonly -mountpoint "$mount"
+          echo "VLC_RUNTIME_DIR=$mount/VLC.app/Contents/MacOS" >> "$GITHUB_ENV"
+
+      - name: Download VLC runtime for Windows
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'vlc-3.0.24-win64.zip'
+          $extract = Join-Path $env:RUNNER_TEMP 'vlc-win64'
+          Invoke-WebRequest `
+            -Uri 'https://get.videolan.org/vlc/3.0.24/win64/vlc-3.0.24-win64.zip' `
+            -OutFile $archive
+          $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne 'fcf30850371ad10c9373cc4f0f4501e7dee49e3e9ae9f20c72fb2661a1ca6323') {
+            throw 'VLC archive SHA-256 verification failed.'
+          }
+          Expand-Archive -Path $archive -DestinationPath $extract
+          $runtime = Get-ChildItem $extract -Directory | Where-Object {
+            Test-Path (Join-Path $_.FullName 'libvlc.dll')
+          } | Select-Object -First 1
+          if (-not $runtime) {
+            throw 'The VLC archive does not contain libvlc.dll.'
+          }
+          "VLC_RUNTIME_DIR=$($runtime.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+
       - name: Build installer
         run: ${{ matrix.command }}
 

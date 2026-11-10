@@ -1,17 +1,22 @@
 {
   "name": "showdeck-pro",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "ShowDeck Pro desktop presentation player",
   "author": "OZ Production",
   "private": true,
   "main": "main.cjs",
   "scripts": {
     "prepare:app": "node scripts/prepare-app.cjs",
+    "prepare:vlc-runtime": "node scripts/prepare-vlc-runtime.cjs",
     "build:css": "tailwindcss --config tailwind.config.cjs --input src/styles.css --output app-build/assets/app.css --minify",
     "build": "npm run prepare:app && npm run build:css",
     "start": "npm run build && electron .",
-    "dist:mac": "npm run build && electron-builder --mac dmg --x64 --arm64 --publish never",
-    "dist:win": "npm run build && electron-builder --win nsis --publish never"
+    "dist:mac": "npm run build && npm run prepare:vlc-runtime && electron-builder --mac dmg --x64 --arm64 --publish never",
+    "dist:mac:arm64": "npm run build && npm run prepare:vlc-runtime -- --arch=arm64 && electron-builder --mac dmg --arm64 --publish never",
+    "dist:win": "npm run build && npm run prepare:vlc-runtime && electron-builder --win nsis --publish never"
+  },
+  "dependencies": {
+    "koffi": "3.3.7"
   },
   "devDependencies": {
     "@fontsource/inter": "5.3.0",
@@ -34,9 +39,17 @@
     },
     "files": [
       "app-build/**/*",
+      "libvlc-output.cjs",
       "main.cjs",
       "preload.cjs",
+      "preload-output.cjs",
       "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "vlc-runtime",
+        "to": "vlc"
+      }
     ],
     "mac": {
       "category": "public.app-category.video",

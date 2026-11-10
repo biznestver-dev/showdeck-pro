@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ShowDeck — прототип VLC</title>
+  <style>
+    :root { color-scheme: dark; font: 14px system-ui, sans-serif; background: #101318; color: #eef2f8; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 28px; }
+    main { width: min(680px, 100%); padding: 24px; border: 1px solid #2b3441; border-radius: 16px; background: #191f28; }
+    h1 { margin: 0 0 8px; font-size: 20px; }
+    p { color: #aab5c5; line-height: 1.5; }
+    .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+    button { border: 1px solid #344155; border-radius: 8px; padding: 9px 13px; background: #263248; color: white; cursor: pointer; }
+    button:hover { background: #34445e; }
+    #status { min-height: 22px; color: #9dbcf2; overflow-wrap: anywhere; }
+    #file { margin-top: 16px; overflow-wrap: anywhere; color: #cbd5e1; }
+    small { color: #8290a3; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Сравнение воспроизведения VLC</h1>
+    <p>Видео запускается в отдельном приложении VLC, поэтому тест не зависит от встраивания нативного видеовывода в Electron и не затрагивает ShowDeck.</p>
+    <div class="actions">
+      <button id="open">Выбрать видео</button>
+      <button id="stop">Закрыть плеер VLC</button>
+    </div>
+    <div id="file">Файл не выбран</div>
+    <p id="status">Готов к сравнению</p>
+    <p><small>Управление воспроизведением, перемотка и полноэкранный режим доступны в окне VLC. Проверьте тот же файл и дисплей, что и в ShowDeck.</small></p>
+  </main>
+  <script src="renderer.js"></script>
+</body>
+</html>

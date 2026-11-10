@@ -1,0 +1,14 @@
+{
+  "name": "showdeck-libvlc-prototype",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Isolated macOS libVLC playback prototype for ShowDeck Pro",
+  "main": "main.cjs",
+  "scripts": {
+    "start": "node launch.cjs",
+    "start:native": "node launch.cjs --native"
+  },
+  "dependencies": {
+    "koffi": "3.3.7"
+  }
+}
