@@ -431,6 +431,7 @@
             <span id="vidCurrentTime" class="font-mono text-xs text-gray-300 w-11 text-right">00:00</span>
             <input id="vidSeekSlider" type="range" min="0" max="100" value="0" step="0.1" class="flex-1 accent-blue-500 h-1.5 bg-gray-700 rounded-lg cursor-pointer" />
             <span id="vidDurationTime" class="font-mono text-xs text-gray-400 w-11">00:00</span>
+            <span id="vidPlaybackStats" class="font-mono text-[10px] text-gray-400 whitespace-nowrap" title="Статистика кадров Chromium">Кадры: ожидание</span>
           </div>
 
           <div class="flex items-center gap-3 text-xs">
@@ -597,7 +598,6 @@
       isLocalFullscreen: false,
       outputWindow: null,
       videoElementPgm: null,
-      videoElementFs: null,
       draggedCueId: null,
       timerSeconds: 0,
       timerRunning: false,
@@ -677,6 +677,7 @@
       vidRestartBtn: document.getElementById('vidRestartBtn'),
       vidCurrentTime: document.getElementById('vidCurrentTime'),
       vidDurationTime: document.getElementById('vidDurationTime'),
+      vidPlaybackStats: document.getElementById('vidPlaybackStats'),
       vidSeekSlider: document.getElementById('vidSeekSlider'),
       vidLoopCheck: document.getElementById('vidLoopCheck'),
       vidVolumeSlider: document.getElementById('vidVolumeSlider'),
@@ -950,6 +951,41 @@
       return meta;
     }
 
+    async function persistFontInApp(font) {
+      if (!window.showDeckDesktop?.saveFont || !(font.fontData instanceof ArrayBuffer)) return;
+      const result = await window.showDeckDesktop.saveFont(font.fontData, {
+        fileName: font.fileName,
+        family: font.family,
+        source: font.source
+      });
+      font.storageId = result.id;
+    }
+
+    async function restoreSavedFonts() {
+      if (!window.showDeckDesktop?.listFonts) return;
+      const savedFonts = await window.showDeckDesktop.listFonts();
+
+      for (const savedFont of savedFonts) {
+        const data = savedFont.data instanceof Uint8Array
+          ? savedFont.data
+          : new Uint8Array(savedFont.data);
+        const meta = await registerFontBuffer(
+          data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength),
+          savedFont.fileName,
+          savedFont.source,
+          savedFont.family
+        );
+        const registeredFont = state.loadedFonts[state.loadedFonts.length - 1];
+        registeredFont.storageId = savedFont.id;
+        savedFont.family = meta.family;
+      }
+
+      updateFontManagerUI();
+      if (savedFonts.length > 0) {
+        showBanner(`Автоматически загружено сохранённых шрифтов: ${savedFonts.length}.`);
+      }
+    }
+
     async function handleFontFiles(fileList) {
       const files = Array.from(fileList);
       if (!files.length) return;
@@ -959,6 +995,13 @@
         try {
           const buf = await file.arrayBuffer();
           const meta = await registerFontBuffer(buf, file.name, 'user');
+          const registeredFont = state.loadedFonts[state.loadedFonts.length - 1];
+          try {
+            await persistFontInApp(registeredFont);
+          } catch (err) {
+            console.error('Ошибка сохранения шрифта в приложении:', file.name, err);
+            showBanner(`Шрифт «${meta.family}» загружен, но не сохранён для следующего запуска: ${err.message}`);
+          }
           addedNames.push(`${meta.family} (${meta.subfamily})`);
         } catch (err) {
           console.error('Ошибка загрузки шрифта:', file.name, err);
@@ -1044,8 +1087,15 @@
         const urlMatches = [...cssText.matchAll(/url\((https:\/\/fonts\.gstatic\.com\/[^)]+)\)/g)];
         if (urlMatches.length > 0) {
           const fontFileResp = await fetch(urlMatches[0][1]);
+          if (!fontFileResp.ok) throw new Error(`Ошибка загрузки файла шрифта (${fontFileResp.status}).`);
           const fontBuf = await fontFileResp.arrayBuffer();
           await registerFontBuffer(fontBuf, `${cleanName}.woff2`, 'google_fonts', cleanName);
+          try {
+            await persistFontInApp(state.loadedFonts[state.loadedFonts.length - 1]);
+          } catch (e) {
+            console.error('Ошибка сохранения загруженного шрифта в приложении:', cleanName, e);
+            showBanner(`Шрифт «${cleanName}» загружен, но не сохранён для следующего запуска: ${e.message}`);
+          }
         } else {
           state.loadedFamilySet.add(cleanName.toLowerCase());
         }
@@ -1197,9 +1247,19 @@
             <button data-idx="${idx}" class="remove-font-btn text-gray-500 hover:text-red-400 px-2 py-1 text-xs">✕</button>
           `;
           row.querySelector('.remove-font-btn').addEventListener('click', () => {
-            state.loadedFonts.splice(idx, 1);
-            state.loadedFamilySet = new Set(state.loadedFonts.map(item => item.family.toLowerCase()));
-            updateFontManagerUI();
+            const removeFont = async () => {
+              const font = state.loadedFonts[idx];
+              if (font.storageId && window.showDeckDesktop?.removeFont) {
+                await window.showDeckDesktop.removeFont(font.storageId);
+              }
+              state.loadedFonts.splice(idx, 1);
+              state.loadedFamilySet = new Set(state.loadedFonts.map(item => item.family.toLowerCase()));
+              updateFontManagerUI();
+            };
+            removeFont().catch(err => {
+              console.error('Ошибка удаления сохранённого шрифта:', err);
+              showBanner(`Не удалось удалить шрифт: ${err.message}`);
+            });
           });
           dom.loadedFontsList.appendChild(row);
         });
@@ -2354,6 +2414,13 @@
           if (settled) return;
           settled = true;
           clearTimeout(fallbackTimer);
+          tempVid.onloadeddata = null;
+          tempVid.onseeked = null;
+          tempVid.onerror = null;
+          tempVid.pause();
+          tempVid.removeAttribute('src');
+          tempVid.load();
+          tempVid.remove();
           state.cues.push(cueData);
           resolve();
         };
@@ -2437,6 +2504,32 @@
         };
       });
     }
+
+    let lastVideoPlaybackErrorKey = null;
+    let lastVideoPlaybackErrorTimeout = null;
+
+    function showVideoPlaybackError(title, errorCode, errorMessage = '') {
+      const errorDescriptions = {
+        1: 'воспроизведение было прервано',
+        2: 'ошибка чтения файла',
+        3: 'не удалось декодировать видеопоток',
+        4: 'формат или кодек не поддерживается Electron/Chromium'
+      };
+      const reason = errorDescriptions[errorCode] || errorMessage || 'неизвестная ошибка декодирования';
+      const errorKey = `${title}:${errorCode}:${reason}`;
+      if (lastVideoPlaybackErrorKey === errorKey) return;
+
+      lastVideoPlaybackErrorKey = errorKey;
+      clearTimeout(lastVideoPlaybackErrorTimeout);
+      lastVideoPlaybackErrorTimeout = setTimeout(() => {
+        lastVideoPlaybackErrorKey = null;
+      }, 3000);
+      showBanner(
+        `Не удалось воспроизвести «${title}»: ${reason}. Попробуйте перекодировать видео в MP4 (H.264 + AAC) или WebM (VP8/VP9 + Opus).`
+      );
+    }
+
+    window.showVideoPlaybackError = showVideoPlaybackError;
 
     // 5D. IMAGE PARSER
     async function parseImage(file) {
@@ -2766,14 +2859,48 @@
       syncOutputWindow();
     }
 
+    let videoPlaybackStatsInterval = null;
+
+    function updateVideoPlaybackStats(video) {
+      if (typeof video.getVideoPlaybackQuality !== 'function') {
+        dom.vidPlaybackStats.textContent = 'Кадры: недоступно';
+        dom.vidPlaybackStats.className = 'font-mono text-[10px] text-gray-500 whitespace-nowrap';
+        return;
+      }
+
+      const { droppedVideoFrames, totalVideoFrames } = video.getVideoPlaybackQuality();
+      const dropped = Number.isFinite(droppedVideoFrames) ? droppedVideoFrames : 0;
+      const total = Number.isFinite(totalVideoFrames) ? totalVideoFrames : 0;
+      const percentage = total + dropped > 0 ? (dropped / (total + dropped)) * 100 : 0;
+      dom.vidPlaybackStats.textContent = `Кадры: ${dropped} пропущено (${percentage.toFixed(1)}%)`;
+      dom.vidPlaybackStats.className = `font-mono text-[10px] whitespace-nowrap ${
+        percentage >= 5 ? 'text-red-400' : percentage >= 2 ? 'text-amber-400' : 'text-gray-400'
+      }`;
+    }
+
+    function startVideoPlaybackStats(video) {
+      clearInterval(videoPlaybackStatsInterval);
+      updateVideoPlaybackStats(video);
+      videoPlaybackStatsInterval = setInterval(() => updateVideoPlaybackStats(video), 1000);
+    }
+
     function updateMonitors() {
       const pgmCue = state.cues[state.currentIndex] || null;
       const pvwCue = state.cues[state.currentIndex + 1] || null;
 
+      clearInterval(videoPlaybackStatsInterval);
+      videoPlaybackStatsInterval = null;
+      dom.vidPlaybackStats.textContent = 'Кадры: ожидание';
+      dom.vidPlaybackStats.className = 'font-mono text-[10px] text-gray-400 whitespace-nowrap';
+      stopOutputVideoStream();
+      if (state.videoElementPgm) {
+        state.videoElementPgm.pause();
+        state.videoElementPgm.removeAttribute('src');
+        state.videoElementPgm.load();
+      }
       dom.pgmStageContent.innerHTML = '';
       dom.localFullscreenStage.innerHTML = '';
       state.videoElementPgm = null;
-      state.videoElementFs = null;
 
       if (!pgmCue) {
         dom.pgmCueIndex.textContent = 'CUE 0 / 0';
@@ -2809,23 +2936,19 @@
           vid.className = 'w-full h-full object-contain';
           vid.loop = !!pgmCue.loop;
           vid.playsInline = true;
+          vid.preload = 'auto';
 
           const outputOpen = state.outputWindow && !state.outputWindow.closed;
           const muteOperator = outputOpen && dom.audioOutputMode.value === 'output_only';
           vid.muted = muteOperator;
           vid.volume = parseFloat(dom.vidVolumeSlider.value);
 
-          dom.pgmStageContent.appendChild(vid);
+          (state.isLocalFullscreen ? dom.localFullscreenStage : dom.pgmStageContent).appendChild(vid);
           state.videoElementPgm = vid;
 
-          const fsVid = document.createElement('video');
-          fsVid.src = pgmCue.src;
-          fsVid.className = 'w-full h-full object-contain';
-          fsVid.loop = !!pgmCue.loop;
-          fsVid.muted = !state.isLocalFullscreen;
-          fsVid.volume = parseFloat(dom.vidVolumeSlider.value);
-          dom.localFullscreenStage.appendChild(fsVid);
-          state.videoElementFs = fsVid;
+          vid.addEventListener('error', () => {
+            showVideoPlaybackError(pgmCue.title, vid.error?.code);
+          });
 
           vid.addEventListener('loadedmetadata', () => {
             dom.vidDurationTime.textContent = formatTime(vid.duration);
@@ -2840,10 +2963,14 @@
 
           vid.addEventListener('play', () => {
             dom.vidPlayIcon.textContent = '⏸ Пауза';
+            startVideoPlaybackStats(vid);
           });
 
           vid.addEventListener('pause', () => {
             dom.vidPlayIcon.textContent = '▶ Старт';
+            clearInterval(videoPlaybackStatsInterval);
+            videoPlaybackStatsInterval = null;
+            updateVideoPlaybackStats(vid);
           });
 
           const mode = dom.videoClickerMode.value;
@@ -2897,20 +3024,48 @@
       }
     }
 
+    let outputVideoStream = null;
+    let outputVideoStreamSource = null;
+    let outputStreamFallbackNotified = false;
+
+    function stopOutputVideoStream() {
+      if (outputVideoStream) {
+        outputVideoStream.getTracks().forEach(track => track.stop());
+      }
+      outputVideoStream = null;
+      outputVideoStreamSource = null;
+    }
+
+    function getOutputVideoStream() {
+      const video = state.videoElementPgm;
+      if (!video || typeof video.captureStream !== 'function') {
+        stopOutputVideoStream();
+        return null;
+      }
+      if (outputVideoStream && outputVideoStreamSource === video) return outputVideoStream;
+
+      stopOutputVideoStream();
+      outputVideoStream = video.captureStream();
+      outputVideoStreamSource = video;
+      return outputVideoStream;
+    }
+
+    window.showVideoOutputFallback = (title, reason) => {
+      showBanner(`Для Output включено отдельное декодирование видео «${title}»: ${reason}`);
+    };
+
     function playActiveVideo() {
       if (state.videoElementPgm) {
-        state.videoElementPgm.play().catch(() => {});
-      }
-      if (state.videoElementFs && state.isLocalFullscreen) {
-        state.videoElementFs.currentTime = state.videoElementPgm ? state.videoElementPgm.currentTime : 0;
-        state.videoElementFs.play().catch(() => {});
+        state.videoElementPgm.play().catch(error => {
+          const cue = state.cues[state.currentIndex];
+          showVideoPlaybackError(cue?.title || 'видео', state.videoElementPgm?.error?.code, error.message);
+        });
       }
       sendVideoActionToOutput({ action: 'play', time: state.videoElementPgm?.currentTime || 0 });
     }
 
     function pauseActiveVideo() {
       if (state.videoElementPgm) state.videoElementPgm.pause();
-      if (state.videoElementFs) state.videoElementFs.pause();
       sendVideoActionToOutput({ action: 'pause', time: state.videoElementPgm?.currentTime || 0 });
     }
 
@@ -3004,8 +3159,55 @@
     const blackout = document.getElementById('blackout');
     const ovTimerEl = document.getElementById('outputOverlayTimer');
     let currentVideo = null;
+    let currentVideoTitle = 'видео';
+    let currentVideoSrc = null;
+    let currentVideoUsesStream = false;
+    let currentVideoStream = null;
+    let currentVideoFallbackTime = 0;
+    let currentVideoShouldPlay = false;
     let currentCueSrc = null;
     let cursorHideTimeout = null;
+
+    function showOutputStreamFallback(error, notify = true) {
+      currentVideoUsesStream = false;
+      currentVideoStream = null;
+      if (currentVideo) {
+        const video = currentVideo;
+        currentVideo.pause();
+        video.srcObject = null;
+        video.preload = 'metadata';
+        video.src = currentVideoSrc;
+        const resumeTime = currentVideoFallbackTime;
+        if (currentVideoShouldPlay || resumeTime > 0) {
+          video.addEventListener('loadedmetadata', () => {
+            if (resumeTime > 0) video.currentTime = resumeTime;
+            if (currentVideoShouldPlay) {
+              video.play().catch(playError => {
+                if (window.opener && typeof window.opener.showVideoPlaybackError === 'function') {
+                  window.opener.showVideoPlaybackError(currentVideoTitle, video.error?.code, playError.message);
+                }
+              });
+            }
+          }, { once: true });
+        }
+      }
+      if (notify && window.opener && typeof window.opener.showVideoOutputFallback === 'function') {
+        window.opener.showVideoOutputFallback(currentVideoTitle, error.message || 'общий видеопоток недоступен');
+      }
+    }
+
+    function useOutputVideoStream(video, stream) {
+      try {
+        video.pause();
+        video.removeAttribute('src');
+        video.srcObject = stream;
+        currentVideoUsesStream = true;
+        currentVideoStream = stream;
+        video.play().catch(showOutputStreamFallback);
+      } catch (error) {
+        showOutputStreamFallback(error);
+      }
+    }
 
     function scheduleCursorHide() {
       document.body.classList.remove('cursor-hidden');
@@ -3088,6 +3290,10 @@
       if (!msg.cue || msg.cue.type === 'blackout') {
         stage.innerHTML = '';
         currentVideo = null;
+        currentVideoTitle = 'видео';
+        currentVideoSrc = null;
+        currentVideoUsesStream = false;
+        currentVideoStream = null;
         currentCueSrc = null;
         return;
       }
@@ -3098,6 +3304,13 @@
           currentVideo.loop = !!msg.cue.loop;
           currentVideo.volume = msg.volume ?? 1;
           currentVideo.muted = !!msg.muteOutput;
+          currentVideoFallbackTime = msg.currentTime || 0;
+          currentVideoShouldPlay = !!msg.isPlaying;
+          if (msg.videoStream && currentVideoStream !== msg.videoStream) {
+            useOutputVideoStream(currentVideo, msg.videoStream);
+          } else if (!msg.videoStream && currentVideoUsesStream) {
+            showOutputStreamFallback(new Error('режим вывода звука требует отдельного декодера'), false);
+          }
         }
         return;
       }
@@ -3105,6 +3318,12 @@
       currentCueSrc = uniqueKey;
       stage.innerHTML = '';
       currentVideo = null;
+      currentVideoTitle = msg.cue.title || 'видео';
+      currentVideoSrc = msg.cue.src;
+      currentVideoUsesStream = false;
+      currentVideoStream = null;
+      currentVideoFallbackTime = msg.currentTime || 0;
+      currentVideoShouldPlay = !!msg.isPlaying;
 
       if (msg.cue.type === 'image') {
         const img = document.createElement('img');
@@ -3112,28 +3331,52 @@
         stage.appendChild(img);
       } else if (msg.cue.type === 'video') {
         const vid = document.createElement('video');
-        vid.src = msg.cue.fileObj ? URL.createObjectURL(msg.cue.fileObj) : msg.cue.src;
+        vid.preload = 'metadata';
         vid.loop = !!msg.cue.loop;
         vid.volume = msg.volume ?? 1;
         vid.muted = !!msg.muteOutput;
         vid.playsInline = true;
+        vid.addEventListener('error', () => {
+          if (window.opener && typeof window.opener.showVideoPlaybackError === 'function') {
+            window.opener.showVideoPlaybackError(msg.cue.title, vid.error?.code);
+          }
+        });
         stage.appendChild(vid);
         currentVideo = vid;
 
-        if (msg.isPlaying) {
+        if (msg.videoStream) {
+          useOutputVideoStream(vid, msg.videoStream);
+        } else {
+          vid.src = msg.cue.src;
+        }
+
+        if (!msg.videoStream && msg.isPlaying) {
           vid.currentTime = msg.currentTime || 0;
-          vid.play().catch(() => {});
+          vid.play().catch(error => {
+            if (window.opener && typeof window.opener.showVideoPlaybackError === 'function') {
+              window.opener.showVideoPlaybackError(msg.cue.title, vid.error?.code, error.message);
+            }
+          });
         }
       }
     };
 
     window.videoAction = function(msg) {
       if (!currentVideo) return;
-      if (typeof msg.time === 'number' && Math.abs(currentVideo.currentTime - msg.time) > 0.35) {
+      if (msg.action === 'play') currentVideoShouldPlay = true;
+      if (msg.action === 'pause') currentVideoShouldPlay = false;
+      if (typeof msg.time === 'number') currentVideoFallbackTime = msg.time;
+      if (!currentVideoUsesStream && typeof msg.time === 'number' && Math.abs(currentVideo.currentTime - msg.time) > 0.35) {
         currentVideo.currentTime = msg.time;
       }
-      if (msg.action === 'play') currentVideo.play().catch(() => {});
-      if (msg.action === 'pause') currentVideo.pause();
+      if (msg.action === 'play' && !currentVideoUsesStream) {
+        currentVideo.play().catch(error => {
+          if (window.opener && typeof window.opener.showVideoPlaybackError === 'function') {
+            window.opener.showVideoPlaybackError(currentVideoTitle, currentVideo.error?.code, error.message);
+          }
+        });
+      }
+      if (msg.action === 'pause' && !currentVideoUsesStream) currentVideo.pause();
       if (msg.action === 'volume') currentVideo.volume = msg.volume;
       if (msg.action === 'loop') currentVideo.loop = msg.loop;
     };
@@ -3157,29 +3400,55 @@
       dom.openOutputBtn.classList.replace('bg-emerald-600', 'bg-blue-600');
 
       setTimeout(() => {
+        if (state.videoElementPgm) {
+          state.videoElementPgm.muted = dom.audioOutputMode.value === 'output_only';
+        }
         syncOutputWindow();
-        updateMonitors();
       }, 60);
 
       const checkClosed = setInterval(() => {
         if (!state.outputWindow || state.outputWindow.closed) {
           clearInterval(checkClosed);
           state.outputWindow = null;
+          stopOutputVideoStream();
           dom.outputBtnLabel.textContent = 'Экран вывода (Output)';
           dom.openOutputBtn.classList.replace('bg-blue-600', 'bg-emerald-600');
-          updateMonitors();
+          if (state.videoElementPgm) state.videoElementPgm.muted = false;
+          syncOutputWindow();
         }
       }, 1000);
     }
 
     function syncOutputWindow() {
-      if (!state.outputWindow || state.outputWindow.closed) return;
+      if (!state.outputWindow || state.outputWindow.closed) {
+        stopOutputVideoStream();
+        return;
+      }
       if (typeof state.outputWindow.renderState !== 'function') return;
 
       const cue = state.cues[state.currentIndex] || null;
       const muteOutput = dom.audioOutputMode.value === 'operator_only';
       const isPlaying = state.videoElementPgm ? !state.videoElementPgm.paused : false;
       const currentTime = state.videoElementPgm ? state.videoElementPgm.currentTime : 0;
+      const shouldShareVideo = cue?.type === 'video' && muteOutput;
+      let videoStream = null;
+
+      if (shouldShareVideo) {
+        try {
+          videoStream = getOutputVideoStream();
+        } catch (error) {
+          stopOutputVideoStream();
+          if (!outputStreamFallbackNotified) {
+            outputStreamFallbackNotified = true;
+            showBanner(`Output использует отдельный видеодекодер: не удалось передать общий поток (${error.message}).`);
+          }
+        }
+
+        if (!videoStream && !outputStreamFallbackNotified) {
+          outputStreamFallbackNotified = true;
+          showBanner('Output использует отдельный видеодекодер: Chromium не поддерживает передачу общего видеопотока в этом режиме.');
+        }
+      }
 
       state.outputWindow.renderState({
         cue,
@@ -3188,8 +3457,11 @@
         muteOutput,
         isPlaying,
         currentTime,
+        videoStream,
         overlayTimer: getOverlayTimerRenderPayload()
       });
+
+      if (!shouldShareVideo) stopOutputVideoStream();
     }
 
     // ==========================================
@@ -3271,14 +3543,21 @@
     // ==========================================
     // 11. LOCAL FULLSCREEN MODE
     // ==========================================
+    function moveActiveVideoToFullscreenStage() {
+      const video = state.videoElementPgm;
+      if (!video) return;
+      const target = state.isLocalFullscreen ? dom.localFullscreenStage : dom.pgmStageContent;
+      if (video.parentElement !== target) target.appendChild(video);
+    }
+
     function enterLocalFullscreen() {
       state.isLocalFullscreen = true;
       dom.localFullscreenOverlay.classList.remove('hidden');
+      moveActiveVideoToFullscreenStage();
       scheduleFullscreenCursorHide();
       if (document.documentElement.requestFullscreen) {
         document.documentElement.requestFullscreen().catch(() => {});
       }
-      updateMonitors();
     }
 
     let fullscreenCursorHideTimeout = null;
@@ -3302,10 +3581,10 @@
       clearTimeout(fullscreenCursorHideTimeout);
       document.body.classList.remove('cursor-hidden');
       dom.localFullscreenOverlay.classList.add('hidden');
+      moveActiveVideoToFullscreenStage();
       if (document.fullscreenElement && document.exitFullscreen) {
         document.exitFullscreen().catch(() => {});
       }
-      updateMonitors();
     }
 
     document.addEventListener('fullscreenchange', () => {
@@ -3314,7 +3593,7 @@
         clearTimeout(fullscreenCursorHideTimeout);
         document.body.classList.remove('cursor-hidden');
         dom.localFullscreenOverlay.classList.add('hidden');
-        updateMonitors();
+        moveActiveVideoToFullscreenStage();
       }
     });
 
@@ -3487,7 +3766,6 @@
     dom.vidRestartBtn.addEventListener('click', () => {
       if (!state.videoElementPgm) return;
       state.videoElementPgm.currentTime = 0;
-      if (state.videoElementFs) state.videoElementFs.currentTime = 0;
       sendVideoActionToOutput({ action: 'play', time: 0 });
       playActiveVideo();
     });
@@ -3496,7 +3774,6 @@
       if (!state.videoElementPgm || !state.videoElementPgm.duration) return;
       const newTime = (parseFloat(e.target.value) / 100) * state.videoElementPgm.duration;
       state.videoElementPgm.currentTime = newTime;
-      if (state.videoElementFs) state.videoElementFs.currentTime = newTime;
       sendVideoActionToOutput({
         action: state.videoElementPgm.paused ? 'pause' : 'play',
         time: newTime
@@ -3507,19 +3784,20 @@
       const cue = state.cues[state.currentIndex];
       if (cue) cue.loop = e.target.checked;
       if (state.videoElementPgm) state.videoElementPgm.loop = e.target.checked;
-      if (state.videoElementFs) state.videoElementFs.loop = e.target.checked;
       sendVideoActionToOutput({ action: 'loop', loop: e.target.checked });
     });
 
     dom.vidVolumeSlider.addEventListener('input', (e) => {
       const vol = parseFloat(e.target.value);
       if (state.videoElementPgm) state.videoElementPgm.volume = vol;
-      if (state.videoElementFs) state.videoElementFs.volume = vol;
       sendVideoActionToOutput({ action: 'volume', volume: vol });
     });
 
     dom.audioOutputMode.addEventListener('change', () => {
-      updateMonitors();
+      if (state.videoElementPgm) {
+        state.videoElementPgm.muted = !!(state.outputWindow && !state.outputWindow.closed &&
+          dom.audioOutputMode.value === 'output_only');
+      }
       syncOutputWindow();
     });
 
@@ -3852,7 +4130,12 @@
     }, 50);
 
     window.addEventListener('DOMContentLoaded', () => {
-      loadDemoDeck();
+      restoreSavedFonts()
+        .catch(err => {
+          console.error('Ошибка загрузки сохранённых шрифтов:', err);
+          showBanner(`Не удалось загрузить сохранённые шрифты: ${err.message}`);
+        })
+        .finally(loadDemoDeck);
     });
   </script>
 </body>

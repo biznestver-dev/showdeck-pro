@@ -1,4 +1,5 @@
 const { app, BrowserWindow, dialog, ipcMain, net, protocol, shell } = require('electron');
+const { randomUUID } = require('node:crypto');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
@@ -18,6 +19,21 @@ protocol.registerSchemesAsPrivileged([
 const appRoot = path.join(__dirname, 'app-build');
 const appPage = 'showdeck://app/index.html';
 let mainWindow;
+
+function getFontStorePath() {
+  return path.join(app.getPath('userData'), 'fonts');
+}
+
+function getStoredFontPaths(id) {
+  if (typeof id !== 'string' || !/^[0-9a-f-]{36}$/i.test(id)) {
+    throw new TypeError('Invalid font id.');
+  }
+  const fontStorePath = getFontStorePath();
+  return {
+    dataPath: path.join(fontStorePath, `${id}.bin`),
+    metadataPath: path.join(fontStorePath, `${id}.json`)
+  };
+}
 
 function registerAppProtocol() {
   protocol.handle('showdeck', (request) => {
@@ -49,6 +65,56 @@ ipcMain.handle('showdeck:save-project', async (event, data, suggestedName) => {
 
   await fs.writeFile(result.filePath, data);
   return { canceled: false, filePath: result.filePath };
+});
+
+ipcMain.handle('showdeck:save-font', async (_event, data, fontInfo) => {
+  if (!(data instanceof Uint8Array) || !fontInfo ||
+      typeof fontInfo.fileName !== 'string' ||
+      typeof fontInfo.family !== 'string' ||
+      !['user', 'google_fonts'].includes(fontInfo.source)) {
+    throw new TypeError('Invalid font data.');
+  }
+
+  const id = randomUUID();
+  const { dataPath, metadataPath } = getStoredFontPaths(id);
+  await fs.mkdir(getFontStorePath(), { recursive: true });
+  await fs.writeFile(dataPath, data);
+  await fs.writeFile(metadataPath, JSON.stringify({
+    id,
+    fileName: path.basename(fontInfo.fileName),
+    family: fontInfo.family,
+    source: fontInfo.source
+  }));
+  return { id };
+});
+
+ipcMain.handle('showdeck:list-fonts', async () => {
+  const fontStorePath = getFontStorePath();
+  await fs.mkdir(fontStorePath, { recursive: true });
+  const entries = await fs.readdir(fontStorePath);
+  const fonts = [];
+
+  for (const entry of entries.filter(name => name.endsWith('.json'))) {
+    const metadata = JSON.parse(await fs.readFile(path.join(fontStorePath, entry), 'utf8'));
+    const { id, fileName, family, source } = metadata;
+    const { dataPath } = getStoredFontPaths(id);
+    fonts.push({
+      id,
+      fileName,
+      family,
+      source,
+      data: new Uint8Array(await fs.readFile(dataPath))
+    });
+  }
+  return fonts;
+});
+
+ipcMain.handle('showdeck:remove-font', async (_event, id) => {
+  const { dataPath, metadataPath } = getStoredFontPaths(id);
+  await Promise.all([
+    fs.rm(dataPath, { force: true }),
+    fs.rm(metadataPath, { force: true })
+  ]);
 });
 
 ipcMain.handle('showdeck:open-project', async (event) => {
