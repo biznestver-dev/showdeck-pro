@@ -1273,6 +1273,25 @@
     }
 
     async function addProjectUrlAsset(zip, path, url) {
+      if (url.startsWith('data:')) {
+        const separator = url.indexOf(',');
+        if (separator < 0) throw new Error('Встроенное изображение проекта имеет неверный формат.');
+
+        const metadata = url.slice(5, separator);
+        const payload = url.slice(separator + 1);
+        const mimeType = metadata.split(';')[0] || 'application/octet-stream';
+        let bytes;
+
+        if (metadata.split(';').some(part => part.toLowerCase() === 'base64')) {
+          const binary = atob(payload.replace(/\s/g, ''));
+          bytes = Uint8Array.from(binary, char => char.charCodeAt(0));
+        } else {
+          bytes = new TextEncoder().encode(decodeURIComponent(payload));
+        }
+
+        return addProjectAsset(zip, path, new Blob([bytes], { type: mimeType }));
+      }
+
       const response = await fetch(url);
       if (!response.ok) throw new Error(`Не удалось прочитать данные проекта (${response.status}).`);
       return addProjectAsset(zip, path, await response.blob());
