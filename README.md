@@ -24,8 +24,8 @@
 ### macOS (Apple Silicon M1–M4 / Intel)
 
 1. Перейдите в раздел [**Releases**](https://github.com/biznestver-dev/showdeck-pro/releases/latest) и скачайте `.dmg` из блока **Assets**:
-   - `ShowDeck Pro-1.0.2-arm64.dmg` — для Mac на чипах **Apple Silicon (M1, M2, M3, M4)**;
-   - `ShowDeck Pro-1.0.2-x64.dmg` — для Mac на процессорах **Intel**.
+   - `ShowDeck.Pro-1.0.2-arm64.dmg` — для Mac на чипах **Apple Silicon (M1, M2, M3, M4)**;
+   - `ShowDeck.Pro-1.0.2-x64.dmg` — для Mac на процессорах **Intel**.
 2. Откройте скачанный образ `.dmg` и перетащите иконку **ShowDeck Pro** в папку **Программы (Applications)**.
 3. **Первый запуск:** поскольку сборка не подписана платным сертификатом Apple Developer ID, macOS при первом открытии может показать предупреждение *«Приложение повреждено, и его не удается открыть»*. Чтобы разрешить запуск, откройте **Терминал** (`Cmd + Пробел` → `Terminal`) и выполните команду:
    ```bash
@@ -35,7 +35,7 @@
 
 ### Windows
 
-1. Перейдите в раздел [**Releases**](https://github.com/biznestver-dev/showdeck-pro/releases/latest) и скачайте файл `ShowDeck Pro-Setup-1.0.2-x64.exe` из блока **Assets**.
+1. Перейдите в раздел [**Releases**](https://github.com/biznestver-dev/showdeck-pro/releases/latest) и скачайте файл `ShowDeck.Pro-Setup-1.0.2-x64.exe` из блока **Assets**.
 2. Запустите установщик (если Windows SmartScreen покажет предупреждение о неизвестном издателе, нажмите **Подробнее** → **Выполнить в любом случае**).
 
 ---
