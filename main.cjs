@@ -337,7 +337,7 @@ function createWindow() {
 
   mainWindow.once('ready-to-show', () => mainWindow.show());
   mainWindow.on('closed', () => {
-    if (activeTranscode?.sender === mainWindow?.webContents) activeTranscode.controller.abort();
+    activeTranscode?.controller.abort();
     mainWindow = null;
   });
   mainWindow.loadURL(appPage);
