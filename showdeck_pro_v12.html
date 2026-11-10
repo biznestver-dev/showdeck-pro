@@ -1283,6 +1283,23 @@
       showBanner('Слайды PPTX перерисованы с учётом загруженных шрифтов!');
     }
 
+    const MAX_SLIDE_RENDER_WIDTH = 3200;
+    const MAX_SLIDE_RENDER_PIXELS = 8_000_000;
+
+    function getSlideRenderScale(width, height) {
+      return Math.min(
+        MAX_SLIDE_RENDER_WIDTH / width,
+        Math.sqrt(MAX_SLIDE_RENDER_PIXELS / (width * height))
+      );
+    }
+
+    function canvasToSlideDataUrl(canvas) {
+      const webp = canvas.toDataURL('image/webp', 0.96);
+      return webp.startsWith('data:image/webp')
+        ? webp
+        : canvas.toDataURL('image/jpeg', 0.96);
+    }
+
     // 5A. PDF PARSER
     async function parsePDF(file) {
       setProgress(true, `Рендеринг PDF: ${file.name}...`, 5);
@@ -1293,14 +1310,17 @@
       for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
         setProgress(true, `PDF (${file.name}): стр. ${pageNum} из ${totalPages}`, (pageNum / totalPages) * 100);
         const page = await pdf.getPage(pageNum);
-        const viewport = page.getViewport({ scale: 1.8 });
+        const baseViewport = page.getViewport({ scale: 1 });
+        const viewport = page.getViewport({
+          scale: getSlideRenderScale(baseViewport.width, baseViewport.height)
+        });
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
         canvas.width = viewport.width;
         canvas.height = viewport.height;
 
         await page.render({ canvasContext: ctx, viewport }).promise;
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+        const dataUrl = canvasToSlideDataUrl(canvas);
 
         const thumbCanvas = document.createElement('canvas');
         const tScale = 240 / viewport.width;
@@ -1434,8 +1454,12 @@
         mediaAssetCache[mPath] = { url, blob, isVideo, imgObj, name: mPath.split('/').pop() };
       }
 
-      const canvasW = 1920;
-      const canvasH = Math.round(1920 * (slideHeightEmu / slideWidthEmu));
+      const slideAspectRatio = slideWidthEmu / slideHeightEmu;
+      const canvasW = Math.round(Math.min(
+        MAX_SLIDE_RENDER_WIDTH,
+        Math.sqrt(MAX_SLIDE_RENDER_PIXELS * slideAspectRatio)
+      ));
+      const canvasH = Math.round(canvasW / slideAspectRatio);
       const scaleX = canvasW / slideWidthEmu;
       const scaleY = canvasH / slideHeightEmu;
 
@@ -1600,7 +1624,7 @@
           });
         }
 
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+        const dataUrl = canvasToSlideDataUrl(canvas);
 
         const thumbCanvas = document.createElement('canvas');
         thumbCanvas.width = 240;
